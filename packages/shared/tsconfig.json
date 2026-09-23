@@ -1,0 +1,8 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // shared is bundled into the browser, so Node globals must not compile here.
+    "types": []
+  },
+  "include": ["src"]
+}
