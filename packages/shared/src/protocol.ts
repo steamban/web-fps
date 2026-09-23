@@ -1,0 +1,252 @@
+import { z } from "zod";
+import { Vec3Schema } from "./geometry";
+import { MapDataSchema } from "./map";
+import { WEAPON_SLOTS } from "./weapons";
+
+/**
+ * The wire protocol, defined once as Zod schemas with the TypeScript types inferred
+ * from them. Compile-time types and runtime validation therefore cannot drift apart.
+ *
+ * Every inbound WebSocket frame is `unknown` until it has been through these schemas —
+ * see `decodeClientMessage` / `decodeServerMessage`.
+ */
+
+/** Bumped on any incompatible wire change; mismatched clients are rejected at `join`. */
+export const PROTOCOL_VERSION = 1 as const;
+
+export const PlayerIdSchema = z.string().min(1).max(64);
+export type PlayerId = z.infer<typeof PlayerIdSchema>;
+
+/**
+ * Names are rendered in the killfeed and scoreboard, so control characters (which would
+ * break the layout or smuggle newlines into logs) are rejected at the wire boundary.
+ */
+export const PlayerNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(24)
+  .regex(/^[^\p{C}]+$/u, { message: "name must not contain control characters" });
+
+export const WeaponSlotSchema = z.enum(WEAPON_SLOTS);
+
+/** Vertical look is physically bounded; horizontal look wraps and is normalised server-side. */
+const PitchSchema = z
+  .number()
+  .min(-Math.PI / 2)
+  .max(Math.PI / 2);
+const YawSchema = z.number();
+
+export const MATCH_PHASES = ["waiting", "inProgress", "paused", "ended"] as const;
+export const MatchPhaseSchema = z.enum(MATCH_PHASES);
+export type MatchPhase = z.infer<typeof MatchPhaseSchema>;
+
+// ---------------------------------------------------------------------------
+// client -> server
+// ---------------------------------------------------------------------------
+
+export const InputKeysSchema = z.object({
+  forward: z.boolean(),
+  back: z.boolean(),
+  left: z.boolean(),
+  right: z.boolean(),
+  jump: z.boolean(),
+});
+export type InputKeys = z.infer<typeof InputKeysSchema>;
+
+export const JoinMessageSchema = z.object({
+  type: z.literal("join"),
+  protocolVersion: z.literal(PROTOCOL_VERSION),
+  name: PlayerNameSchema,
+});
+
+/**
+ * Sent once per client tick. `seq` increments monotonically and is echoed back in
+ * `snapshot.ackSeq` so the client knows which predicted inputs to replay.
+ */
+export const InputMessageSchema = z.object({
+  type: z.literal("input"),
+  seq: z.number().int().nonnegative(),
+  keys: InputKeysSchema,
+  yaw: YawSchema,
+  pitch: PitchSchema,
+});
+
+export const FireMessageSchema = z.object({
+  type: z.literal("fire"),
+  seq: z.number().int().nonnegative(),
+  slot: WeaponSlotSchema,
+});
+
+export const StartMessageSchema = z.object({ type: z.literal("start") });
+export const PauseMessageSchema = z.object({ type: z.literal("pause"), paused: z.boolean() });
+export const CloseMessageSchema = z.object({ type: z.literal("close") });
+export const KickMessageSchema = z.object({
+  type: z.literal("kick"),
+  targetId: PlayerIdSchema,
+});
+
+export const ClientMessageSchema = z.discriminatedUnion("type", [
+  JoinMessageSchema,
+  InputMessageSchema,
+  FireMessageSchema,
+  StartMessageSchema,
+  PauseMessageSchema,
+  CloseMessageSchema,
+  KickMessageSchema,
+]);
+export type ClientMessage = z.infer<typeof ClientMessageSchema>;
+
+// ---------------------------------------------------------------------------
+// server -> client
+// ---------------------------------------------------------------------------
+
+export const LobbyPlayerSchema = z.object({
+  id: PlayerIdSchema,
+  name: PlayerNameSchema,
+  isHost: z.boolean(),
+});
+export type LobbyPlayer = z.infer<typeof LobbyPlayerSchema>;
+
+export const LobbyStateMessageSchema = z.object({
+  type: z.literal("lobbyState"),
+  phase: MatchPhaseSchema,
+  /** Null only in the moment between the host leaving and a new one being promoted. */
+  hostId: PlayerIdSchema.nullable(),
+  selfId: PlayerIdSchema,
+  minPlayers: z.number().int().positive(),
+  maxPlayers: z.number().int().positive(),
+  players: z.array(LobbyPlayerSchema),
+});
+
+export const MatchStartMessageSchema = z.object({
+  type: z.literal("matchStart"),
+  tick: z.number().int().nonnegative(),
+  tickRateHz: z.number().int().positive(),
+  killLimit: z.number().int().positive(),
+  timeLimitMs: z.number().int().positive(),
+  map: MapDataSchema,
+});
+
+export const SnapshotPlayerSchema = z.object({
+  id: PlayerIdSchema,
+  position: Vec3Schema,
+  yaw: YawSchema,
+  pitch: PitchSchema,
+  health: z.number().int().nonnegative(),
+  alive: z.boolean(),
+  spawnProtected: z.boolean(),
+  score: z.number().int().nonnegative(),
+  deaths: z.number().int().nonnegative(),
+});
+export type SnapshotPlayer = z.infer<typeof SnapshotPlayerSchema>;
+
+export const SnapshotMessageSchema = z.object({
+  type: z.literal("snapshot"),
+  tick: z.number().int().nonnegative(),
+  /** Last `input.seq` from this recipient that the server has simulated. */
+  ackSeq: z.number().int().nonnegative(),
+  players: z.array(SnapshotPlayerSchema),
+});
+
+export const HitMessageSchema = z.object({
+  type: z.literal("hit"),
+  shooterId: PlayerIdSchema,
+  targetId: PlayerIdSchema,
+  slot: WeaponSlotSchema,
+  damage: z.number().int().nonnegative(),
+  headshot: z.boolean(),
+  remainingHealth: z.number().int().nonnegative(),
+});
+
+export const DeathMessageSchema = z.object({
+  type: z.literal("death"),
+  victimId: PlayerIdSchema,
+  /** Null for a non-combat death (out of bounds, disconnect cleanup). */
+  killerId: PlayerIdSchema.nullable(),
+  slot: WeaponSlotSchema.nullable(),
+  respawnAtTick: z.number().int().nonnegative(),
+});
+
+export const RespawnMessageSchema = z.object({
+  type: z.literal("respawn"),
+  playerId: PlayerIdSchema,
+  position: Vec3Schema,
+  yaw: YawSchema,
+  spawnProtectedUntilTick: z.number().int().nonnegative(),
+});
+
+export const MATCH_END_REASONS = ["killLimit", "timeLimit", "closed"] as const;
+export const MatchEndReasonSchema = z.enum(MATCH_END_REASONS);
+export type MatchEndReason = z.infer<typeof MatchEndReasonSchema>;
+
+export const ScoreEntrySchema = z.object({
+  id: PlayerIdSchema,
+  name: PlayerNameSchema,
+  score: z.number().int().nonnegative(),
+  deaths: z.number().int().nonnegative(),
+});
+export type ScoreEntry = z.infer<typeof ScoreEntrySchema>;
+
+export const MatchEndMessageSchema = z.object({
+  type: z.literal("matchEnd"),
+  reason: MatchEndReasonSchema,
+  scores: z.array(ScoreEntrySchema),
+});
+
+export const KICK_REASONS = [
+  "host",
+  "lobbyFull",
+  "matchInProgress",
+  "lobbyClosed",
+  "protocolMismatch",
+  "invalidMessage",
+] as const;
+export const KickReasonSchema = z.enum(KICK_REASONS);
+export type KickReason = z.infer<typeof KickReasonSchema>;
+
+export const KickedMessageSchema = z.object({
+  type: z.literal("kicked"),
+  reason: KickReasonSchema,
+});
+
+export const ServerMessageSchema = z.discriminatedUnion("type", [
+  LobbyStateMessageSchema,
+  MatchStartMessageSchema,
+  SnapshotMessageSchema,
+  HitMessageSchema,
+  DeathMessageSchema,
+  RespawnMessageSchema,
+  MatchEndMessageSchema,
+  KickedMessageSchema,
+]);
+export type ServerMessage = z.infer<typeof ServerMessageSchema>;
+
+// ---------------------------------------------------------------------------
+// wire decoding
+// ---------------------------------------------------------------------------
+
+function decode<T extends z.ZodType>(schema: T, data: string): z.infer<T> | null {
+  let json: unknown;
+  try {
+    json = JSON.parse(data);
+  } catch {
+    return null;
+  }
+  const result = schema.safeParse(json);
+  return result.success ? result.data : null;
+}
+
+/** Returns `null` for anything the server must not trust: bad JSON or a schema mismatch. */
+export function decodeClientMessage(data: string): ClientMessage | null {
+  return decode(ClientMessageSchema, data);
+}
+
+/** Returns `null` if the server sent something this client build cannot understand. */
+export function decodeServerMessage(data: string): ServerMessage | null {
+  return decode(ServerMessageSchema, data);
+}
+
+export function encodeMessage(message: ClientMessage | ServerMessage): string {
+  return JSON.stringify(message);
+}
