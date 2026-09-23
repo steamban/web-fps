@@ -1,0 +1,22 @@
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    # 0.0.0.0 inside the container plus this publish makes the server reachable
+    # from another machine via the host's LAN IP or its Tailscale IP.
+    ports:
+      - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
+    environment:
+      SERVER_PORT: ${SERVER_PORT:-8080}
+      GAME_MODE: ${GAME_MODE:-player}
+    # Optional overrides for the remaining tunables; config.ts owns the defaults.
+    env_file:
+      - path: .env
+        required: false
+    # Only source is mounted. Dependencies stay exactly as the image installed them,
+    # so there is nothing to shadow and no anonymous volume to go stale across a
+    # rebuild — change a dependency and `docker compose up --build` is enough.
+    volumes:
+      - ./packages/shared/src:/app/packages/shared/src
+      - ./packages/server/src:/app/packages/server/src

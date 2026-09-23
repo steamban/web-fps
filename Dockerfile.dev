@@ -1,0 +1,20 @@
+# Dev-mode image: dependencies are baked in, source is bind-mounted by compose so
+# edits on the host reload inside the container. Not a production image — M7 covers
+# packaging the built client and a slim runtime.
+FROM node:26-alpine
+
+WORKDIR /app
+
+# Copy only the manifests first so `npm ci` is cached until a dependency changes.
+COPY package.json package-lock.json ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/server/package.json packages/server/
+COPY packages/client/package.json packages/client/
+
+RUN npm ci
+
+COPY . .
+
+EXPOSE 8080
+
+CMD ["npm", "run", "dev", "--workspace", "@web-fps/server"]
