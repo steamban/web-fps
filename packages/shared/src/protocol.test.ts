@@ -76,6 +76,17 @@ describe("join name validation", () => {
     });
   });
 
+  it("allows emoji built from a zero-width joiner", () => {
+    for (const name of ["\u{1F9D1}\u200D\u{1F4BB}arvind", "\u{1F3F3}\uFE0F\u200D\u{1F308}bob"]) {
+      expect(decodeClientMessage(JSON.stringify({ ...validJoin, name }))).toMatchObject({ name });
+    }
+  });
+
+  it("still rejects a bidi override that would scramble the killfeed line", () => {
+    const spoofed = { ...validJoin, name: "bob\u202Ednammoc" };
+    expect(decodeClientMessage(JSON.stringify(spoofed))).toBeNull();
+  });
+
   it("rejects a name longer than 24 characters", () => {
     expect(decodeClientMessage(JSON.stringify({ ...validJoin, name: "x".repeat(25) }))).toBeNull();
   });

@@ -19,14 +19,18 @@ export type PlayerId = z.infer<typeof PlayerIdSchema>;
 
 /**
  * Names are rendered in the killfeed and scoreboard, so control characters (which would
- * break the layout or smuggle newlines into logs) are rejected at the wire boundary.
+ * break the layout or smuggle newlines into logs) and bidi overrides (which would let a
+ * name scramble the line around it) are rejected at the wire boundary.
+ *
+ * `\p{C}` covers all of that, but it also covers U+200D ZERO WIDTH JOINER — the character
+ * every family and profession emoji is built from — so that one is allowed back in.
  */
 export const PlayerNameSchema = z
   .string()
   .trim()
   .min(1)
   .max(24)
-  .regex(/^[^\p{C}]+$/u, { message: "name must not contain control characters" });
+  .regex(/^(?:[^\p{C}]|\u200D)+$/u, { message: "name must not contain control characters" });
 
 export const WeaponSlotSchema = z.enum(WEAPON_SLOTS);
 
