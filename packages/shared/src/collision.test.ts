@@ -58,6 +58,14 @@ describe("aabbOverlaps", () => {
     );
   });
 
+  it("treats a penetration far below a visible distance as contact", () => {
+    // A player resting on a face is stored as a centre and rebuilt from it next step, and
+    // 0.3 does not round-trip exactly — so contact reappears as a sliver of penetration.
+    expect(
+      aabbOverlaps(unit, { min: { x: 1 - 1e-12, y: 0, z: 0 }, max: { x: 2, y: 1, z: 1 } }),
+    ).toBe(false);
+  });
+
   it("ignores boxes that only overlap on some axes", () => {
     expect(aabbOverlaps(unit, { min: { x: 0.5, y: 5, z: 0.5 }, max: { x: 2, y: 6, z: 2 } })).toBe(
       false,
@@ -228,6 +236,39 @@ describe("resolveMove against ramps", () => {
     const result = move(ramped, player(2, 4, 0), { x: 0.2 });
     expect(feet(result.box).y).toBeCloseTo(4);
     expect(result.grounded).toBe(false);
+  });
+});
+
+describe("resolveMove for a player already resting against something", () => {
+  /**
+   * Movement keeps a position and rebuilds the box from it every step, and neither the
+   * halving nor the subtraction is exact — so a player parked flush against a face comes
+   * back a sliver inside it. The size is whatever double precision leaves at this scale;
+   * what the resolver has to survive is that it is not zero.
+   */
+  const PENETRATION = 1e-15;
+
+  const restingOn = (solid: Aabb, x: number): Aabb => ({
+    min: { x: x - HALF_WIDTH, y: 0, z: solid.max.z - PENETRATION },
+    max: { x: x + HALF_WIDTH, y: HEIGHT, z: solid.max.z + 0.6 - PENETRATION },
+  });
+
+  it("lets them walk along the face they are touching", () => {
+    const crate: Aabb = { min: { x: -10, y: 0, z: -10 }, max: { x: -8, y: 1, z: -8 } };
+    const map = arena({ boxes: [crate] });
+
+    // Without a contact tolerance the sliver of overlap on z reads as a fresh collision on
+    // x too, and the push-out ejects the player out of the crate's far side instead.
+    const result = move(map, restingOn(crate, -9.4), { x: 0.05, y: -0.0066 }, true);
+    expect(feet(result.box).x).toBeCloseTo(-9.35, 6);
+    expect(feet(result.box).z).toBeCloseTo(-7.7, 6);
+  });
+
+  it("does not step up onto a box, however low — only ramps carry a player up", () => {
+    const map = arena({ boxes: [{ min: { x: 2, y: 0, z: -5 }, max: { x: 3, y: 0.2, z: 5 } }] });
+    const result = move(map, player(1, 0, 0), { x: 1, y: -0.0066 }, true);
+    expect(feet(result.box).x).toBeCloseTo(2 - HALF_WIDTH);
+    expect(feet(result.box).y).toBeCloseTo(0);
   });
 });
 

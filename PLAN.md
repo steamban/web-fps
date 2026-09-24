@@ -268,6 +268,15 @@ exists, the condition that would reverse it.
 - **The sandbox is a button on the join screen, and leaving it is a reload.** It needs no
   server, so it does not belong behind one; and it is a tuning tool, not a screen the lobby
   navigates back and forth to, so there is no teardown path to keep correct.
+- **The resolver has a contact tolerance, and it is load-bearing.** A resolved move parks
+  the player exactly on the face they hit, but movement stores a position and rebuilds the
+  box from it next step, and that round trip is not exact — so resting on something comes
+  back as a penetration around 1e-15 deep. Treated as a collision, that fires on *every*
+  axis, including the ones the player is only sliding along, and the push-out then ejects
+  them the full width of whatever they were leaning on: measured teleports of 0.3-6.5 m
+  from a standing start, on 26 of 312 sampled approaches across the sandbox map. Overlaps
+  below a nanometre are therefore contact, not collision. Do not remove this in the belief
+  that exact arithmetic makes it unnecessary; it is exactly the exactness that fails.
 - **Ground snapping on descent.** After a move that would leave a grounded player airborne,
   they are pulled back down onto anything within `stepHeight`. Without it, walking down a
   slope is a series of little hops, because a step forward drops the floor out from under

@@ -19,6 +19,19 @@ type Axis = "x" | "y" | "z";
  */
 const MAX_SUBSTEP_METERS = 0.1;
 
+/**
+ * Overlaps shallower than this are contact, not collision.
+ *
+ * A resolved move parks the player exactly on the face they hit, but movement stores a
+ * position and rebuilds the box from it every step, and that round trip is not exact — so
+ * resting on something reappears as a penetration around 1e-15 deep. Without a tolerance
+ * that reads as a fresh collision on *every* axis, including the ones the player is only
+ * sliding along, and the push-out below then ejects them the full width of whatever they
+ * were leaning on. A nanometre is far beneath anything the game can express and far above
+ * the error, so the two cannot be confused.
+ */
+const CONTACT_EPSILON = 1e-9;
+
 export interface MoveOptions {
   /** Largest rise a slope may push the player up; anything steeper blocks like a wall. */
   readonly stepHeight: number;
@@ -38,15 +51,16 @@ export interface MoveResult {
   readonly hitCeiling: boolean;
 }
 
-/** Shared volume only — boxes that merely touch are not colliding. */
+/** Shared volume only — boxes that touch, or that overlap by less than `CONTACT_EPSILON`,
+ *  are not colliding. */
 export function aabbOverlaps(a: Aabb, b: Aabb): boolean {
   return (
-    a.min.x < b.max.x &&
-    a.max.x > b.min.x &&
-    a.min.y < b.max.y &&
-    a.max.y > b.min.y &&
-    a.min.z < b.max.z &&
-    a.max.z > b.min.z
+    a.min.x < b.max.x - CONTACT_EPSILON &&
+    a.max.x > b.min.x + CONTACT_EPSILON &&
+    a.min.y < b.max.y - CONTACT_EPSILON &&
+    a.max.y > b.min.y + CONTACT_EPSILON &&
+    a.min.z < b.max.z - CONTACT_EPSILON &&
+    a.max.z > b.min.z + CONTACT_EPSILON
   );
 }
 
@@ -103,7 +117,7 @@ export function rampSurfaceUnder(ramp: Ramp, box: Aabb): number | null {
   const highX = Math.min(box.max.x, max.x);
   const lowZ = Math.max(box.min.z, min.z);
   const highZ = Math.min(box.max.z, max.z);
-  if (lowX >= highX || lowZ >= highZ) return null;
+  if (highX - lowX <= CONTACT_EPSILON || highZ - lowZ <= CONTACT_EPSILON) return null;
   return rampSurfaceHeight(
     ramp,
     ramp.ascend === "+x" ? highX : lowX,
