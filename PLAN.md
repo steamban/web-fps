@@ -277,6 +277,10 @@ exists, the condition that would reverse it.
   from a standing start, on 26 of 312 sampled approaches across the sandbox map. Overlaps
   below a nanometre are therefore contact, not collision. Do not remove this in the belief
   that exact arithmetic makes it unnecessary; it is exactly the exactness that fails.
+- **An axis with no movement is not resolved at all.** Per-axis resolution reads the exit
+  direction off the sign of the move, so an axis moved by zero has no sign to read and
+  would push everything the same way. A move of zero cannot have entered anything, so any
+  overlap it finds predates it and is not its to undo.
 - **Ground snapping on descent.** After a move that would leave a grounded player airborne,
   they are pulled back down onto anything within `stepHeight`. Without it, walking down a
   slope is a series of little hops, because a step forward drops the floor out from under

@@ -132,6 +132,11 @@ function moveHorizontal(
   distance: number,
   stepHeight: number,
 ): Aabb {
+  // A move of zero cannot have entered anything, so any overlap standing at this point
+  // predates it. Resolving anyway would pick a direction from the sign of the move — and
+  // with no sign to read, every such axis would eject the player the same way.
+  if (distance === 0) return box;
+
   let moved = shift(box, axis, distance);
 
   if (moved.min[axis] < map.bounds.min[axis]) moved = placeMin(moved, axis, map.bounds.min[axis]);

@@ -264,6 +264,16 @@ describe("resolveMove for a player already resting against something", () => {
     expect(feet(result.box).z).toBeCloseTo(-7.7, 6);
   });
 
+  it("does not resolve an axis the move never touched", () => {
+    const map = arena({ boxes: [{ min: { x: 2, y: 0, z: -5 }, max: { x: 3, y: 3, z: 5 } }] });
+
+    // Nothing in the game puts a player inside a wall, but a move of zero along an axis
+    // cannot have entered anything, so it must not invent a direction to eject them in.
+    const result = move(map, player(2.5, 0, 0), { y: -0.05 }, true);
+    expect(feet(result.box).x).toBeCloseTo(2.5);
+    expect(feet(result.box).z).toBeCloseTo(0);
+  });
+
   it("does not step up onto a box, however low — only ramps carry a player up", () => {
     const map = arena({ boxes: [{ min: { x: 2, y: 0, z: -5 }, max: { x: 3, y: 0.2, z: 5 } }] });
     const result = move(map, player(1, 0, 0), { x: 1, y: -0.0066 }, true);
