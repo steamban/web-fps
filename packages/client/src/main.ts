@@ -5,17 +5,22 @@ import {
   type KickReason,
   PlayerNameSchema,
   PROTOCOL_VERSION,
+  SANDBOX_MAP,
   type ServerMessage,
 } from "@web-fps/shared";
+import { startSandbox } from "./sandbox";
 import { toWebSocketUrl } from "./serverUrl";
 
 /**
- * The M1 join screen: reach a host, see who else is in the lobby, and — if you got there
- * first — run it. The Three.js renderer and the match itself land in M2/M3, so everything
- * here is driven by `lobbyState` alone.
+ * The join screen: reach a host, see who else is in the lobby, and — if you got there
+ * first — run it. Starting a match still only moves the lobby's phase; the networked game
+ * itself lands in M3, so everything on this screen is driven by `lobbyState` alone.
  *
  * The server is the authority on what each control does; the buttons only reflect the
  * last `lobbyState`, so a stale click is refused there rather than trusted here.
+ *
+ * The one thing here that needs no server is the M2 movement sandbox, which runs the same
+ * simulation locally against the same map.
  */
 
 type LobbyState = Extract<ServerMessage, { type: "lobbyState" }>;
@@ -38,6 +43,9 @@ const ui = {
   pause: el<HTMLButtonElement>("pause"),
   close: el<HTMLButtonElement>("close"),
   status: el("status"),
+  sandbox: el<HTMLButtonElement>("sandbox"),
+  game: el("game"),
+  view: el<HTMLCanvasElement>("view"),
 };
 
 const KICK_TEXT: Record<KickReason, string> = {
@@ -118,6 +126,15 @@ function showJoinScreen(message: string): void {
   ui.form.hidden = false;
   ui.status.textContent = message;
 }
+
+// One way in, no way out but a reload — the sandbox is a tuning tool, not a screen the
+// lobby navigates back and forth to.
+ui.sandbox.addEventListener("click", () => {
+  ui.form.hidden = true;
+  ui.status.textContent = "";
+  ui.game.hidden = false;
+  startSandbox(ui.view, SANDBOX_MAP);
+});
 
 ui.start.addEventListener("click", () => send({ type: "start" }));
 ui.close.addEventListener("click", () => send({ type: "close" }));

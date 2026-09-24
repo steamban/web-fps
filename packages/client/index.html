@@ -99,6 +99,36 @@
         margin: 16px 0 0;
         color: #c2a86a;
       }
+      #sandbox {
+        background: transparent;
+        border-color: #2c3037;
+        color: #8d949c;
+      }
+      #game:not([hidden]) {
+        position: fixed;
+        inset: 0;
+      }
+      #view {
+        display: block;
+        width: 100%;
+        height: 100%;
+        cursor: crosshair;
+      }
+      #hint {
+        position: absolute;
+        left: 50%;
+        bottom: 18px;
+        transform: translateX(-50%);
+        margin: 0;
+        padding: 7px 13px;
+        border-radius: 6px;
+        background: #14161acc;
+        color: #8d949c;
+        white-space: nowrap;
+      }
+      #hint a {
+        color: #8d949c;
+      }
     </style>
   </head>
   <body>
@@ -109,6 +139,7 @@
         <input id="address" placeholder="192.168.1.5:8080" autocomplete="off" spellcheck="false" />
         <input id="name" placeholder="your name" maxlength="24" autocomplete="off" />
         <button type="submit">Join</button>
+        <button id="sandbox" type="button">Movement sandbox</button>
       </form>
 
       <section id="lobby" hidden>
@@ -122,6 +153,14 @@
       </section>
 
       <p id="status"></p>
+
+      <section id="game" hidden>
+        <canvas id="view"></canvas>
+        <p id="hint">
+          Click to look around &middot; WASD to move &middot; Space to jump &middot; Esc to
+          release the mouse &middot; <a href="/">leave</a>
+        </p>
+      </section>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

@@ -259,6 +259,15 @@ exists, the condition that would reverse it.
   through real events rather than mocked out.
 - **Movement keys are read from `event.code`, by physical position.** WASD stays where the
   fingers are whatever the keyboard layout is.
+- **The sandbox loop runs at 60 Hz, not the server's 20 Hz.** It has no interpolation, so
+  stepping at the tick rate would mean judging the movement through a stutter that M3's
+  interpolation removes. The physics is what is being tuned here; `stepMovement` takes its
+  dt, so M3 drives the same code at `TICK_RATE_HZ` without either side changing. A
+  backgrounded tab returns with a huge elapsed time, so catch-up is capped at 250 ms rather
+  than freezing while the loop works through it.
+- **The sandbox is a button on the join screen, and leaving it is a reload.** It needs no
+  server, so it does not belong behind one; and it is a tuning tool, not a screen the lobby
+  navigates back and forth to, so there is no teardown path to keep correct.
 - **Ground snapping on descent.** After a move that would leave a grounded player airborne,
   they are pulled back down onto anything within `stepHeight`. Without it, walking down a
   slope is a series of little hops, because a step forward drops the floor out from under
