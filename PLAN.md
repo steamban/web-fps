@@ -281,6 +281,19 @@ exists, the condition that would reverse it.
   direction off the sign of the move, so an axis moved by zero has no sign to read and
   would push everything the same way. A move of zero cannot have entered anything, so any
   overlap it finds predates it and is not its to undo.
+- **Only ramps carry a player up; a box is always jumped or gone around.** `stepHeight`
+  is a slope limit, not a stair height — `moveHorizontal` pushes out of every box
+  regardless of how low it is. Boxes that step up would mean mounting cover by walking at
+  it, which is not the arcade feel this is after. The sandbox map's comments were written
+  the other way round at first and had to be corrected; the behaviour has a test now so the
+  next reader is not misled again.
+- **The jump apex depends on the tick rate, so map heights are judged at the slowest one.**
+  The arc is integrated a step at a time, which peaks lower the coarser the step: 0.99 m at
+  the server's default 20 Hz, 1.11 m at the sandbox's 60, 1.14 m at 120. A box top between
+  those is one a player mounts while tuning and cannot mount in a match. No obstacle height
+  is allowed to sit in that band, and a test enforces it against the real jump rather than
+  a copied number. Removing the dependence would mean integrating the arc analytically —
+  worth it only if a tunable ever lands in that band for a good reason.
 - **Ground snapping on descent.** After a move that would leave a grounded player airborne,
   they are pulled back down onto anything within `stepHeight`. Without it, walking down a
   slope is a series of little hops, because a step forward drops the floor out from under

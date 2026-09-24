@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { aabbOverlaps, rampSurfaceHeight, rampSurfaceUnder } from "./collision";
 import type { Aabb } from "./geometry";
-import { MapDataSchema, type Ramp } from "./map";
-import { playerBox } from "./movement";
+import { type MapData, MapDataSchema, type Ramp } from "./map";
+import { type MovementState, playerBox, stepMovement } from "./movement";
+import type { InputKeys } from "./protocol";
 import { SANDBOX_MAP } from "./sandboxMap";
 
 /**
@@ -18,6 +19,30 @@ const contains = (outer: Aabb, inner: Aabb): boolean =>
   inner.max.y <= outer.max.y &&
   inner.min.z >= outer.min.z &&
   inner.max.z <= outer.max.z;
+
+/** Nowhere to stand on and nothing to hit: just the arc of a standing jump. */
+const EMPTY: MapData = {
+  ...SANDBOX_MAP,
+  boxes: [],
+  ramps: [],
+};
+
+/** How high a standing jump's feet reach when the simulation is stepped at `tickMs`. */
+const apexAt = (tickMs: number): number => {
+  const jump: InputKeys = { forward: false, back: false, left: false, right: false, jump: true };
+  let state: MovementState = {
+    position: { x: 0, y: EMPTY.bounds.min.y, z: 0 },
+    velocity: { x: 0, y: 0, z: 0 },
+    grounded: true,
+  };
+  let highest = state.position.y;
+  state = stepMovement(state, jump, 0, tickMs, EMPTY);
+  while (!state.grounded) {
+    highest = Math.max(highest, state.position.y);
+    state = stepMovement(state, { ...jump, jump: false }, 0, tickMs, EMPTY);
+  }
+  return highest - EMPTY.bounds.min.y;
+};
 
 describe("SANDBOX_MAP", () => {
   it("is valid map data", () => {
@@ -77,6 +102,24 @@ describe("SANDBOX_MAP", () => {
       expect(contains(SANDBOX_MAP.bounds, box)).toBe(true);
       for (const solid of SANDBOX_MAP.boxes) expect(aabbOverlaps(box, solid)).toBe(false);
       for (const ramp of SANDBOX_MAP.ramps) expect(rampSurfaceUnder(ramp, box)).toBeNull();
+    }
+  });
+
+  it("has no obstacle whose jumpability depends on the tick rate", () => {
+    // The jump arc is integrated one step at a time, so a slower tick peaks lower: 0.99 m
+    // at the server's default 20 Hz against 1.14 m at 120. A box top between the two is one
+    // a player mounts in the sandbox and cannot mount in a match — and since only ramps
+    // carry a player up, a box top is exactly what a jump has to clear.
+    const reachable = apexAt(1000 / 20);
+    const unreachable = apexAt(1000 / 120);
+    expect(reachable).toBeLessThan(unreachable);
+
+    for (const box of SANDBOX_MAP.boxes) {
+      const climb = box.max.y - SANDBOX_MAP.bounds.min.y;
+      expect({ climb, decided: climb < reachable || climb > unreachable }).toEqual({
+        climb,
+        decided: true,
+      });
     }
   });
 

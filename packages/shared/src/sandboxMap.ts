@@ -22,10 +22,12 @@ export const SANDBOX_MAP: MapData = {
     { min: { x: 6, y: 0, z: -6 }, max: { x: 14, y: 3, z: 6 } },
     // North-west platform, reached by the short ramp.
     { min: { x: -8, y: 0, z: 4 }, max: { x: 0, y: 1.5, z: 10 } },
-    // A crate you can jump onto, and a step you can walk straight up a ramp-free.
-    { min: { x: -10, y: 0, z: -10 }, max: { x: -8, y: 1, z: -8 } },
+    // Only ramps carry a player up, so a box is something to jump onto or go around, never
+    // to walk up. These two stay under the jump apex at every tick rate the server runs —
+    // it is lower the slower the tick, 0.99 m at 20 Hz against 1.14 m at 120.
+    { min: { x: -10, y: 0, z: -10 }, max: { x: -8, y: 0.8, z: -8 } },
     { min: { x: 2, y: 0, z: 10 }, max: { x: 4, y: 0.5, z: 12 } },
-    // Taller than the jump: this one you have to go around.
+    // Over the apex at any rate: this one you go around.
     { min: { x: -14, y: 0, z: 2 }, max: { x: -12, y: 2.5, z: 4 } },
     // A wall in two halves — the gap between them is the corner-clipping test you can feel.
     { min: { x: -16, y: 0, z: -10 }, max: { x: -15.5, y: 3, z: -2 } },
