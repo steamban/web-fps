@@ -244,6 +244,14 @@ exists, the condition that would reverse it.
   compile error, and M3 ships this exact object in `matchStart`, so what the server
   simulates and what the client draws cannot diverge. Loading maps from files is only worth
   it once there is more than one, which v1 has already deferred.
+- **Ramps are drawn as a box whose four top corners are placed by `rampSurfaceHeight`.**
+  The two corners on the low edge collapse onto their own bottom corners, which turns the
+  box into the wedge for the price of two zero-area triangles. Cheaper than a special-cased
+  wedge, and it makes the visible slope literally the collision surface — the one client
+  bug this milestone could most easily ship is a ramp you can see but not stand on, so
+  that is the one renderer behaviour with a test.
+- **The renderer has no `dist` of its own map.** `buildScene` takes `MapData` and nothing
+  else, so the M3 client will draw whatever `matchStart` hands it without a second path.
 - **Ground snapping on descent.** After a move that would leave a grounded player airborne,
   they are pulled back down onto anything within `stepHeight`. Without it, walking down a
   slope is a series of little hops, because a step forward drops the floor out from under
