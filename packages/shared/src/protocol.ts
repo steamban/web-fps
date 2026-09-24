@@ -14,6 +14,9 @@ import { WEAPON_SLOTS } from "./weapons";
 /** Bumped on any incompatible wire change; mismatched clients are rejected at `join`. */
 export const PROTOCOL_VERSION = 1 as const;
 
+/** Path the WebSocket endpoint is mounted at. Both sides read it from here so it cannot drift. */
+export const WS_PATH = "/ws";
+
 export const PlayerIdSchema = z.string().min(1).max(64);
 export type PlayerId = z.infer<typeof PlayerIdSchema>;
 
