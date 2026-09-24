@@ -224,6 +224,18 @@ exists, the condition that would reverse it.
   what makes a ramp's tall face solid without describing it separately.
 - **A ramp has no underside.** Nothing collides with a slope from below. True while every
   ramp in a map sits on the floor; a map that suspends one would need real wedge collision.
+- **Yaw 0 faces -z, and `movement.ts` is where that is written down.** It matches a
+  Three.js camera's resting direction, so the renderer needs no conversion. Forward is
+  `(-sin yaw, 0, -cos yaw)`; spawn yaws in map data mean the same thing.
+- **Horizontal velocity tracks the keys instantly, in the air as on the ground.** No
+  acceleration curve, no friction, no air-control penalty — arcade, and the movement tech
+  those would enable is already deferred to v2. It also means only `velocity.y` has to
+  carry between steps, which keeps reconciliation in M3 to a single number.
+- **Jump and ground-snap are mutually exclusive.** Snapping applies only to a player who
+  was grounded and is not leaving the ground this step; applied during a jump it would glue
+  them back to the floor.
+- **`stepMovement` takes `dtMs` rather than assuming the tick rate.** The sandbox runs it
+  at 60 Hz for feel; M3's server will run it at `TICK_RATE_HZ`. The caller owns the rate.
 - **Ground snapping on descent.** After a move that would leave a grounded player airborne,
   they are pulled back down onto anything within `stepHeight`. Without it, walking down a
   slope is a series of little hops, because a step forward drops the floor out from under
