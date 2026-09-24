@@ -252,6 +252,13 @@ exists, the condition that would reverse it.
   that is the one renderer behaviour with a test.
 - **The renderer has no `dist` of its own map.** `buildScene` takes `MapData` and nothing
   else, so the M3 client will draw whatever `matchStart` hands it without a second path.
+- **Controls split into pure angle maths and listener plumbing.** `applyLook` and
+  `keyField` are functions with tests; `createControls` is the wiring around them. The bugs
+  this code actually has — a key that sticks after the window loses focus, a mouse that
+  turns the view when the pointer is not locked — are in the wiring, so that is covered
+  through real events rather than mocked out.
+- **Movement keys are read from `event.code`, by physical position.** WASD stays where the
+  fingers are whatever the keyboard layout is.
 - **Ground snapping on descent.** After a move that would leave a grounded player airborne,
   they are pulled back down onto anything within `stepHeight`. Without it, walking down a
   slope is a series of little hops, because a step forward drops the floor out from under

@@ -1,0 +1,112 @@
+import type { InputKeys } from "@web-fps/shared";
+
+/**
+ * Keyboard and mouse for a player standing in the world: WASD by physical key position,
+ * space to jump, and a look direction driven by pointer lock.
+ *
+ * The angles follow the movement convention (`@web-fps/shared`): yaw 0 faces -z, so
+ * turning right lowers yaw, and pitch is positive looking up.
+ */
+
+export interface Look {
+  readonly yaw: number;
+  readonly pitch: number;
+}
+
+/** Radians of turn per pixel of mouse travel. */
+export const MOUSE_SENSITIVITY = 0.0022;
+
+const TAU = Math.PI * 2;
+/** Straight up and straight down, which is also the bound the wire protocol enforces. */
+const MAX_PITCH = Math.PI / 2;
+
+/** Fold an angle back into [-pi, pi), so a long session cannot drift yaw into a range
+ *  where float precision starts to show. */
+const wrap = (angle: number): number => angle - TAU * Math.floor((angle + Math.PI) / TAU);
+
+const clamp = (value: number, low: number, high: number): number =>
+  Math.min(Math.max(value, low), high);
+
+export function applyLook(look: Look, movementX: number, movementY: number): Look {
+  return {
+    yaw: wrap(look.yaw - movementX * MOUSE_SENSITIVITY),
+    pitch: clamp(look.pitch - movementY * MOUSE_SENSITIVITY, -MAX_PITCH, MAX_PITCH),
+  };
+}
+
+/** Keys are read by position, not by letter, so the layout the player types in is irrelevant. */
+const KEY_FIELDS: Readonly<Record<string, keyof InputKeys>> = {
+  KeyW: "forward",
+  KeyS: "back",
+  KeyA: "left",
+  KeyD: "right",
+  Space: "jump",
+};
+
+export function keyField(code: string): keyof InputKeys | null {
+  return KEY_FIELDS[code] ?? null;
+}
+
+export interface Controls {
+  /** A snapshot of what is held right now; writing to it changes nothing. */
+  keys(): InputKeys;
+  look(): Look;
+  dispose(): void;
+}
+
+const NOTHING_HELD: InputKeys = {
+  forward: false,
+  back: false,
+  left: false,
+  right: false,
+  jump: false,
+};
+
+export function createControls(canvas: HTMLElement, startYaw: number): Controls {
+  let held: InputKeys = { ...NOTHING_HELD };
+  let look: Look = { yaw: startYaw, pitch: 0 };
+
+  const setKey = (event: KeyboardEvent, down: boolean): void => {
+    const field = keyField(event.code);
+    if (field === null) return;
+    held[field] = down;
+    // Space scrolls the page otherwise, which drags the canvas out from under the player.
+    event.preventDefault();
+  };
+
+  const onKeyDown = (event: KeyboardEvent): void => setKey(event, true);
+  const onKeyUp = (event: KeyboardEvent): void => setKey(event, false);
+
+  // A key let go while the window is in the background never reports its keyup, so coming
+  // back would find the player still walking.
+  const onBlur = (): void => {
+    held = { ...NOTHING_HELD };
+  };
+
+  const onMouseMove = (event: MouseEvent): void => {
+    if (document.pointerLockElement !== canvas) return;
+    look = applyLook(look, event.movementX, event.movementY);
+  };
+
+  const onClick = (): void => {
+    if (document.pointerLockElement !== canvas) void canvas.requestPointerLock();
+  };
+
+  window.addEventListener("keydown", onKeyDown);
+  window.addEventListener("keyup", onKeyUp);
+  window.addEventListener("blur", onBlur);
+  window.addEventListener("mousemove", onMouseMove);
+  canvas.addEventListener("click", onClick);
+
+  return {
+    keys: () => ({ ...held }),
+    look: () => look,
+    dispose(): void {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("mousemove", onMouseMove);
+      canvas.removeEventListener("click", onClick);
+    },
+  };
+}
