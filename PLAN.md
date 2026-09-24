@@ -17,6 +17,47 @@ Browser FPS, arcade style (krunker/ev/venge-like), LAN/Tailscale-hostable. v1 sc
 | Round | 30 kills or 10 min (first hit), 5s respawn timer, 5s spawn protection, scoreboard → auto-restart same map |
 | Lobby | First joiner = host (Start/Kick/Pause/Close controls), no late-join once started |
 
+## Working agreement
+
+Process rules that hold across every milestone. A milestone may be picked up in a different
+session than the one that started it, so these are written down rather than assumed.
+
+**Commit atomically, as you go.** One commit per coherent change — never one commit per
+milestone. A commit is atomic when it stands on its own: it makes one change, it can be
+reverted without collateral, and `npm test`, `npm run lint` and `npm run typecheck` all pass
+*at that commit*. Tests ship in the same commit as the code they cover. A new dependency
+lands in the commit that first needs it, not in a batch ahead of time.
+
+**Conventional Commits.** `type(scope): subject` — imperative mood, lowercase subject, no
+trailing period.
+
+| | |
+|---|---|
+| type | `feat` `fix` `test` `refactor` `docs` `build` `chore` |
+| scope | `shared` `server` `client`, or omitted when the change is repo-wide |
+
+**A fix for a bug that was never committed belongs in the commit that introduces the code**,
+not in a separate `fix:`. A `fix:` commit asserts that a defect once shipped; reserve it for
+bugs that really are in the history.
+
+M1 was built as one large uncommitted change and only split afterwards — a one-off, not the
+pattern. What it was split into is what the history should have looked like from the start:
+
+```
+fix(shared): allow a zero-width joiner in player names
+feat(shared): add the websocket path to the protocol
+feat(server): add lobby state machine
+feat(server): serve the lobby over websocket
+feat(client): parse the host address a player types
+feat(client): add join screen and lobby view
+docs: describe the lobby in the readme
+docs: add a working agreement and design log to the plan
+```
+
+The zero-width-joiner bug was in `shared` since M0, so it is a real `fix:`. The join screen's
+superseded-connection bug was found before any of that code was committed, so its fix lives
+inside `feat(client): add join screen and lobby view` rather than trailing it.
+
 ## Repo structure
 
 npm workspaces monorepo — one repo, one `docker compose up` for dev.
@@ -106,6 +147,62 @@ Each milestone ends in something you can run and see working. TDD means: for M2 
 **M7 — Docker packaging pass**
 - Confirm `docker compose up` on a clean machine: server binds `0.0.0.0`, port published, client served (static build or same dev server), reachable from a second PC on LAN and over Tailscale
 - Manual test: two real machines, one as host, join via LAN IP and via Tailscale IP
+
+## Design log
+
+Decisions taken *while implementing* a milestone that are not derivable from the code and are
+not already written above. Each milestone may be a different session, so a reason that lives
+only in someone's head is lost — read this section before starting a milestone, and append to
+it in the same commit that makes the decision. Record the call, why it was made, and where one
+exists, the condition that would reverse it.
+
+### M0 — Scaffold
+
+- **TypeScript type-checks; it never emits.** `module: preserve` + `noEmit` across every
+  package, with `tsx` running the server and vite the client, both resolving TypeScript from
+  source. Consequence: relative imports carry no `.js` extension anywhere.
+- **Workspace packages export raw `src/index.ts`.** No build step before dev and no `dist/`
+  to go stale. Reverse this if `shared` is ever published or consumed from plain Node — that
+  needs a real build with type declarations.
+- **Wire types are inferred from the Zod schemas, never declared alongside them.** A
+  hand-written type can drift from the schema that validates it; `z.infer` cannot.
+- **An empty environment variable means unset.** Docker and shell exports both surface
+  "unset" as an empty string, so `SERVER_PORT=` has to mean the default rather than `0`.
+- **Docker mounts only `packages/*/src`.** Dependencies stay exactly as the image installed
+  them, so there is no anonymous volume to go stale — at the cost of needing
+  `docker compose up --build` after a dependency change.
+
+### M1 — Lobby & connection
+
+- **The lobby is a pure reducer returning `{ state, effects }`;** `net.ts` is the only file
+  that touches sockets. `sync` is an effect rather than a pre-built message because
+  `lobbyState` carries a per-recipient `selfId`. The same split is planned for `simulate()`
+  in M3, and is what lets the transitions be tested without mocks.
+- **`hostId` is derived from `members[0]`, not stored.** Join order is host order, so
+  promotion after a departure is implicit and there is no second field that can drift.
+- **`close` resets to a fresh `waiting` lobby** instead of parking the state in `ended`.
+  Parking there would leave the server unusable until a restart. M5 introduces `ended`
+  properly, together with the scoreboard and auto-restart.
+- **`start` only flips the phase.** `matchStart` carries map data, which does not exist until
+  M2 — until then clients learn the match began from `lobbyState.phase`.
+- **`lobbyState.minPlayers` reports the *effective* minimum** — 1 under `GAME_MODE=dev`,
+  where a host may start solo. This lets the client gate its own Start button without
+  knowing that game modes exist.
+- **Host-only actions from a non-host are dropped silently, not answered.** The server is the
+  authority; the client disables the control from the last `lobbyState`, so a rejected click
+  means a stale view rather than something worth a reply.
+- **Player ids are server-assigned UUIDs, issued on connect rather than on join.** A joiner
+  who is refused — lobby full, match already running — still needs an address to receive
+  `kicked` at.
+- **A protocol mismatch is re-derived in `net.ts` after decoding fails.**
+  `decodeClientMessage` returns `null` for both a malformed frame and a stale
+  `protocolVersion`; telling a half-updated LAN party "reload the page" is worth a second
+  `JSON.parse` on the failure path.
+- **`ws` is a dependency because Node ships a WebSocket client but no server.** Its 15s
+  ping/pong heartbeat exists so a half-open socket cannot sit on a lobby seat forever.
+- **Client logic is tested under happy-dom against the real `index.html`** (imported with
+  vite's `?raw`), so a renamed element id fails a test instead of the browser. Added after a
+  join-screen bug survived 107 passing tests.
 
 ## Technical details
 
