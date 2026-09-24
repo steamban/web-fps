@@ -236,6 +236,14 @@ exists, the condition that would reverse it.
   them back to the floor.
 - **`stepMovement` takes `dtMs` rather than assuming the tick rate.** The sandbox runs it
   at 60 Hz for feel; M3's server will run it at `TICK_RATE_HZ`. The caller owns the rate.
+- **The arena's floor, ceiling and outer walls are the play-area bounds, not boxes.**
+  `bounds` is the shell and everything in `boxes` is something standing inside it, so there
+  is one clamp instead of six walls to keep consistent — and the renderer draws the same
+  shell from the same numbers.
+- **The map is a typed constant in `shared`, not a JSON asset.** A coordinate typo is a
+  compile error, and M3 ships this exact object in `matchStart`, so what the server
+  simulates and what the client draws cannot diverge. Loading maps from files is only worth
+  it once there is more than one, which v1 has already deferred.
 - **Ground snapping on descent.** After a move that would leave a grounded player airborne,
   they are pulled back down onto anything within `stepHeight`. Without it, walking down a
   slope is a series of little hops, because a step forward drops the floor out from under
