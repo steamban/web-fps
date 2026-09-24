@@ -6,19 +6,20 @@ Full design and milestone breakdown: [PLAN.md](./PLAN.md).
 
 ## Status
 
-**M1 — Lobby & connection.** The server accepts WebSocket connections on `/ws`, seats
-players in a lobby, and gives the first joiner the host controls (Start, Pause, Kick,
-Close). The client has a join screen and a live player list. Movement (M2) and the
-authoritative simulation (M3+) are not built yet — starting a match only moves the lobby
-to `inProgress`; there is nothing to render.
+**M2 — Single-player movement sandbox.** There is a map, and you can walk around it. WASD,
+jump, mouse look, and hand-rolled AABB collision against boxes, ramps and the play-area
+bounds, all running locally at 60 Hz against the same movement code the server will run.
+
+Not built yet: the authoritative simulation (M3), so joining a lobby and starting a match
+still only moves its phase — the sandbox is the only thing you can play.
 
 ## Layout
 
 ```
 packages/
-  shared/   types + Zod schemas for the wire protocol, weapon stats, map data shape
+  shared/   wire protocol, weapon stats, map data and the sandbox map, collision + movement
   server/   Node server: config boundary, HTTP/WS host, lobby state machine (sim lands in M3)
-  client/   Vite browser client: join screen and lobby (Three.js renderer lands in M2)
+  client/   Vite browser client: join screen, lobby, Three.js renderer and the movement loop
 ```
 
 `shared` depends on nothing in this repo; `server` and `client` each depend only on
@@ -50,11 +51,21 @@ Open `http://localhost:5173`, type the server's `host:port` (the port alone defa
 `8080`) and a name. The first person to join hosts and gets the lobby controls; everyone
 else sees the player list. Open a second browser tab to play both sides.
 
+**Movement sandbox** — the button under Join. It needs no server at all: it drops you into
+the map alone so the movement can be tuned without a network round trip in the way. Click
+to capture the mouse, WASD to move, Space to jump, Esc to release it.
+
 The lobby lives entirely in [`packages/server/src/lobby.ts`](./packages/server/src/lobby.ts)
 as pure `(state, args) -> { state, effects }` transitions;
 [`net.ts`](./packages/server/src/net.ts) is the socket shell that carries the effects out.
 The same split will hold for the simulation in M3, which is what keeps both testable
 without sockets.
+
+Movement is the same idea. [`collision.ts`](./packages/shared/src/collision.ts) moves a box
+through map geometry and knows nothing else;
+[`movement.ts`](./packages/shared/src/movement.ts) owns the speeds, the jump and the player's
+size and calls it. Both are pure and live in `shared`, so the client predicting a step and
+the server deciding it in M3 run the identical code.
 
 ## Development
 
@@ -67,10 +78,15 @@ npm run format   # biome check --write
 ```
 
 Tests live next to the code as `*.test.ts`. Logic is written test-first — see the TDD
-note in PLAN.md. Most of them are pure and need no I/O; the two exceptions are
-`packages/server/src/net.test.ts`, which runs a real in-process WebSocket server, and
-`packages/client/src/main.test.ts`, which drives the join screen against `index.html`
-under happy-dom with a stubbed socket.
+note in PLAN.md. Most of them are pure and need no I/O; the exceptions are
+`packages/server/src/net.test.ts`, which runs a real in-process WebSocket server, and the
+client's `main.test.ts` and `controls.test.ts`, which drive the DOM under happy-dom against
+the real `index.html` and real keyboard events.
+
+The renderer is verified by playing it rather than by tests, with one exception: ramp
+geometry is built from the same surface function collision reads, and `scene.test.ts`
+checks they still agree — a slope you can see but not stand on is the bug that would
+otherwise ship.
 
 ## Configuration
 
