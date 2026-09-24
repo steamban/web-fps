@@ -1,10 +1,11 @@
 import { createServer } from "node:http";
+import { WS_PATH } from "@web-fps/shared";
 import { loadConfig } from "./config";
+import { attachLobbyServer } from "./net";
 
 /**
- * Server entrypoint. For now it only proves the configuration boundary and the
- * network binding work: the lobby and the authoritative simulation land in M1/M3,
- * attached to this same HTTP server.
+ * Server entrypoint: configuration boundary, health check, and the WebSocket lobby.
+ * The authoritative simulation attaches to this same server in M3.
  *
  * Binds 0.0.0.0 deliberately so the container port publish makes it reachable over
  * LAN and Tailscale, not just from inside the container.
@@ -25,15 +26,22 @@ function main(): void {
     res.end("not found");
   });
 
+  const lobby = attachLobbyServer(server, config);
+
   server.listen(config.serverPort, HOST, () => {
-    console.log(`web-fps server listening on ${HOST}:${config.serverPort} [${config.gameMode}]`);
+    console.log(
+      `web-fps server listening on ${HOST}:${config.serverPort}${WS_PATH} [${config.gameMode}]`,
+    );
     if (config.isDevMode) {
       console.log("config:", config);
     }
   });
 
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
-    process.on(signal, () => server.close(() => process.exit(0)));
+    // Drop the sockets first: an open WebSocket would otherwise keep server.close() waiting.
+    process.on(signal, () => {
+      void lobby.close().then(() => server.close(() => process.exit(0)));
+    });
   }
 }
 
