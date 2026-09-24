@@ -204,6 +204,31 @@ exists, the condition that would reverse it.
   vite's `?raw`), so a renamed element id fails a test instead of the browser. Added after a
   join-screen bug survived 107 passing tests.
 
+### M2 — Single-player movement sandbox
+
+- **Collision is two modules: `collision.ts` is geometry, `movement.ts` is tuning.** The
+  resolver takes a box and a delta and knows nothing about gravity, input or how wide a
+  player is; speeds and player dimensions live one layer up. M3 needs the same resolver on
+  the server, and this is what stops the server pulling in client feel constants.
+- **Per-axis resolution with substepping, not swept collision.** Moving and resolving x,
+  then z, then y is what makes a player slide along an angled wall and what stops a diagonal
+  run squeezing through an inside corner. Its weakness is over-travel within a single step,
+  so a move longer than 0.1 m is split into several. That bound is well under the thinnest
+  geometry a map uses, so nothing tunnels — a 20 m/s fall at 20 Hz becomes ten substeps.
+  Revisit only if the substep count ever shows up in a profile.
+- **Ramps are height fields, not solids.** A ramp contributes a floor height over its
+  footprint rather than faces to collide with. The player is carried by whichever corner of
+  their footprint is furthest uphill: going up that is the leading edge, so they can never
+  clip into the slope; coming down it is the trailing edge, so they stay supported.
+  A rise within `stepHeight` lifts the player; a taller one blocks like a wall, which is
+  what makes a ramp's tall face solid without describing it separately.
+- **A ramp has no underside.** Nothing collides with a slope from below. True while every
+  ramp in a map sits on the floor; a map that suspends one would need real wedge collision.
+- **Ground snapping on descent.** After a move that would leave a grounded player airborne,
+  they are pulled back down onto anything within `stepHeight`. Without it, walking down a
+  slope is a series of little hops, because a step forward drops the floor out from under
+  the player faster than gravity takes them to it.
+
 ## Technical details
 
 Finer-grained practices worth locking in now, since they're much cheaper to follow from M0 than to retrofit after M3.

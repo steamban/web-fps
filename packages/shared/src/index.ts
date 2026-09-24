@@ -1,3 +1,4 @@
+export * from "./collision";
 export * from "./geometry";
 export * from "./map";
 export * from "./protocol";
