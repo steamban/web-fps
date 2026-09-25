@@ -1,5 +1,6 @@
 import {
   type InputKeys,
+  MAX_HEALTH,
   type MapData,
   type MovementState,
   type PlayerId,
@@ -40,6 +41,17 @@ export interface PlayerSimState {
   readonly pitch: number;
   /** Highest `input.seq` from this player folded into `movement`; 0 before any has been. */
   readonly ackSeq: number;
+  /** 0 to `MAX_HEALTH`, always whole. Dead is `health === 0`, and `alive` is derived from
+   *  it rather than stored: two fields for one fact disagree as soon as one write site
+   *  forgets the other. */
+  readonly health: number;
+  /** Kills landed and deaths taken, counted where a kill happens. M5 reads them for the
+   *  kill limit and the scoreboard rather than recounting them from anywhere else. */
+  readonly score: number;
+  readonly deaths: number;
+  /** Earliest tick this player may fire again. One clock for all three weapons, so
+   *  switching slots cannot be used to shoot faster than either of them allows. */
+  readonly nextFireTick: number;
 }
 
 export interface GameState {
@@ -68,7 +80,17 @@ export function createGame(map: MapData, playerIds: readonly PlayerId[]): GameSt
     players: playerIds.map((id, index) => {
       const spawn = map.spawns[index % map.spawns.length];
       if (!spawn) throw new Error(`map ${map.name} has no spawn points`);
-      return { id, movement: spawnState(spawn), yaw: spawn.yaw, pitch: 0, ackSeq: 0 };
+      return {
+        id,
+        movement: spawnState(spawn),
+        yaw: spawn.yaw,
+        pitch: 0,
+        ackSeq: 0,
+        health: MAX_HEALTH,
+        score: 0,
+        deaths: 0,
+        nextFireTick: 0,
+      };
     }),
   };
 }
@@ -88,6 +110,17 @@ export function simulate(
     ...state,
     tick: state.tick + 1,
     players: state.players.map((player) => {
+      // A corpse neither walks nor falls, but its frames are still acknowledged: its client
+      // holds every unacknowledged input until the server names one, and would otherwise
+      // replay the same buffer for as long as the body lies there.
+      if (player.health === 0) {
+        let ackSeq = player.ackSeq;
+        for (const input of inputs) {
+          if (input.playerId === player.id && input.seq > ackSeq) ackSeq = input.seq;
+        }
+        return ackSeq === player.ackSeq ? player : { ...player, ackSeq };
+      }
+
       let next = player;
 
       for (const input of inputs) {
@@ -100,7 +133,7 @@ export function simulate(
         // downstream has to survive a value that overflows the difference between two.
         const yaw = wrapAngle(input.yaw);
         next = {
-          id: next.id,
+          ...next,
           movement: stepMovement(next.movement, input.keys, yaw, dtMs, state.map),
           yaw,
           pitch: input.pitch,
@@ -137,13 +170,12 @@ const snapshotOf = (player: PlayerSimState): SnapshotPlayer => ({
   pitch: player.pitch,
   velocityY: player.movement.velocity.y,
   grounded: player.movement.grounded,
-  // Constants for now: nothing in M3 can damage anyone (M4) or score (M5). Held here
-  // rather than as untouched fields on GameState, which would read as simulated.
-  health: 100,
-  alive: true,
+  health: player.health,
+  alive: player.health > 0,
+  score: player.score,
+  deaths: player.deaths,
+  // Still a constant: nothing protects a spawn until M5 adds the timer that expires.
   spawnProtected: false,
-  score: 0,
-  deaths: 0,
 });
 
 /**

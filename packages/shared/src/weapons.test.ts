@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LOADOUT, WEAPON_SLOTS } from "./weapons";
+import { LOADOUT, MAX_HEALTH, WEAPON_SLOTS } from "./weapons";
 
 describe("LOADOUT", () => {
   it("defines stats for every weapon slot", () => {
@@ -15,6 +15,13 @@ describe("LOADOUT", () => {
     expect(weapon.reserveAmmo).toBeGreaterThanOrEqual(0);
     expect(weapon.reloadMs).toBeGreaterThanOrEqual(0);
     expect(weapon.magazineSize === null || weapon.magazineSize > 0).toBe(true);
+  });
+
+  it("keeps health and every damage value whole", () => {
+    // Health travels as `z.number().int()`. A fraction anywhere in this table would reach
+    // the wire, fail the snapshot schema, and drop the frame for every client at once.
+    expect(Number.isInteger(MAX_HEALTH)).toBe(true);
+    for (const slot of WEAPON_SLOTS) expect(Number.isInteger(LOADOUT[slot].damage)).toBe(true);
   });
 
   it("gives melee unlimited ammo and no reload", () => {

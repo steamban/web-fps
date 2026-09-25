@@ -1,4 +1,4 @@
-import { MOVE_SPEED, type PlayerId, SANDBOX_MAP, stepMovement } from "@web-fps/shared";
+import { MAX_HEALTH, MOVE_SPEED, type PlayerId, SANDBOX_MAP, stepMovement } from "@web-fps/shared";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "./config";
 import {
@@ -34,6 +34,12 @@ const input = (playerId: PlayerId, seq: number, over: Partial<PlayerInput> = {})
 
 const gameOf = (...ids: PlayerId[]): GameState => createGame(SANDBOX_MAP, ids);
 
+/** Combat lands in the next commit; until then a corpse is made by hand. */
+const kill = (state: GameState, id: PlayerId): GameState => ({
+  ...state,
+  players: state.players.map((player) => (player.id === id ? { ...player, health: 0 } : player)),
+});
+
 const find = (state: GameState, id: PlayerId) => {
   const player = state.players.find((candidate) => candidate.id === id);
   if (!player) throw new Error(`no player ${id}`);
@@ -58,6 +64,12 @@ describe("createGame", () => {
       expect(player.ackSeq).toBe(0);
     }
     expect(state.tick).toBe(0);
+  });
+
+  it("seats everyone at full health, unscored, and ready to fire", () => {
+    for (const player of gameOf("p1", "p2").players) {
+      expect(player).toMatchObject({ health: MAX_HEALTH, score: 0, deaths: 0, nextFireTick: 0 });
+    }
   });
 
   it("wraps round to the first spawn if a map ever has fewer than the lobby seats", () => {
@@ -162,6 +174,23 @@ describe("simulate", () => {
     expect(state.players[0]?.movement).toEqual(predicted);
   });
 
+  it("does not step a player who is dead", () => {
+    // A corpse neither walks nor falls. Without this the no-input branch below would keep
+    // applying gravity to it, and its own frames would walk it away from where it died.
+    const dead = kill(jumped(), "p1");
+    const next = simulate(dead, [input("p1", 5)], DT);
+
+    expect(find(next, "p1").movement).toEqual(find(dead, "p1").movement);
+    expect(simulate(dead, [], DT).players[0]?.movement).toEqual(find(dead, "p1").movement);
+  });
+
+  it("still acknowledges a dead player's inputs", () => {
+    // Their client keeps its unacknowledged frames until the server names them. Never
+    // acking would leave `reconcile` replaying the same buffer for as long as they lie there.
+    const next = simulate(kill(jumped(), "p1"), [input("p1", 5), input("p1", 6)], DT);
+    expect(find(next, "p1").ackSeq).toBe(6);
+  });
+
   it("folds a yaw from the wire onto a single turn", () => {
     // Yaw is unbounded on the wire. Left as sent, a hostile value overflows the difference
     // the client takes to interpolate a facing and poisons the mesh's rotation with NaN.
@@ -211,8 +240,22 @@ describe("snapshotFor", () => {
       velocityY: find(state, "p1").movement.velocity.y,
       grounded: false,
     });
-    // Nothing in M3 can hurt anyone or score, so these are constants until M4 and M5.
-    expect(player).toMatchObject({ health: 100, alive: true, spawnProtected: false, score: 0 });
+    expect(player).toMatchObject({
+      health: MAX_HEALTH,
+      alive: true,
+      score: 0,
+      deaths: 0,
+      // Nothing protects a spawn until M5 introduces the timer that would expire.
+      spawnProtected: false,
+    });
+  });
+
+  it("reports a player at zero health as dead", () => {
+    // `alive` is derived rather than stored: two representations of one fact disagree the
+    // moment a write site updates one of them.
+    const snapshot = snapshotFor(kill(gameOf("p1"), "p1"), "p1");
+    const player = snapshot.type === "snapshot" ? snapshot.players[0] : undefined;
+    expect(player).toMatchObject({ health: 0, alive: false });
   });
 
   it("describes every player, not just the recipient", () => {

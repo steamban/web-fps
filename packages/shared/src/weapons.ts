@@ -1,10 +1,17 @@
 /**
- * Weapon balance data. Every player carries the identical loadout (v1 decision),
- * so this is a flat table rather than a per-player inventory.
+ * Combat balance data. Every player carries the identical loadout (v1 decision), so this is
+ * a flat table rather than a per-player inventory.
  *
  * These are balance numbers, deliberately data here rather than env vars —
  * see PLAN.md "Configuration" for why session tunables and balance stats are split.
  */
+
+/**
+ * Health a player spawns with, and what the damage numbers below are measured against.
+ * A whole number, like every one of them: `SnapshotPlayer.health` is an integer on the
+ * wire, and a fraction there would fail the schema for the entire snapshot.
+ */
+export const MAX_HEALTH = 100;
 
 export const WEAPON_SLOTS = ["primary", "secondary", "melee"] as const;
 export type WeaponSlot = (typeof WEAPON_SLOTS)[number];
