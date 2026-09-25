@@ -299,6 +299,118 @@ exists, the condition that would reverse it.
   slope is a series of little hops, because a step forward drops the floor out from under
   the player faster than gravity takes them to it.
 
+### M3 — Multiplayer sync
+
+- **`simulate` lives in `server`, not `shared`; only the movement step is shared.** The
+  plan's Technical details said the client predicts with "the same `simulate` from
+  `shared`", but the same section also says remote players are never predicted — and a
+  client calling a whole-`GameState` fold would predict them. The client predicts itself
+  by calling `stepMovement` directly, which is the same function the server's fold calls
+  with the same arguments, so the two agree without `shared` holding a function with one
+  caller. Move it only if the client ever needs to simulate somebody else.
+- **`simulate` folds over the players, never over the inputs.** Gravity only advances
+  inside a step, so a player whose input frame was late or dropped has to be stepped
+  anyway or they hang in the air until they send something. Their keys are released for
+  that tick rather than repeated: repeating walks them into geometry the server was never
+  asked to walk them into.
+- **A tick applies every input queued for a player, in order, one step each — not the
+  newest.** Both sides step at the tick rate off unsynchronised clocks, so their phases
+  drift and two input frames periodically land inside one tick. Dropping one leaves the
+  server permanently a step behind an input the client has already discarded as
+  acknowledged, and the correction is visible: 0.35 m at the default speed and tick rate,
+  in the same direction for long stretches. The cost is that a client sending faster than
+  the tick rate moves faster, bounded by the queue cap; v1 has no anti-cheat, so that is
+  accepted rather than solved.
+- **`ackSeq` is set inside the step, to the last sequence number actually applied.** The
+  natural shell-side implementation — remember the newest input received, read it when
+  broadcasting — acknowledges an input that arrived *after* the step, so the client drops
+  a prediction whose motion the snapshot does not contain. Off by one input, every tick.
+- **A sequence number at or below what has already been simulated is skipped, and that is
+  what makes `ackSeq: 0` unambiguous.** Tightening the schema to reject seq 0 was the
+  obvious alternative and is worse: a schema failure closes the socket, so it turns a
+  harmless value into a mid-match disconnect, and it is blind to the replay the guard also
+  covers (5, 5, 3 are all positive). The client starts at 1 as a convention, not a rule.
+- **The snapshot carries `velocityY` and `grounded` beside `position`.** That is exactly
+  what a movement step carries between ticks — horizontal velocity is re-derived from the
+  keys every step — so it is the closure of what a replay needs and nothing more. Not the
+  whole velocity vector, which would publish two derived numbers a future reader would
+  trust; not a separate self-only block, which buys a few hundred bytes a second on a LAN
+  in exchange for a second message shape and a new invariant.
+- **`matchStart` carries the recipient's own spawn, and so is sent per recipient.** The
+  map's spawn yaws exist to turn each corner towards the middle, and nothing else tells a
+  client which spawn it got: the snapshot's yaw is only an echo of what that client last
+  sent, so its first input would overwrite the server's spawn yaw before anything was
+  drawn. Same shape as `lobbyStateFor`.
+- **Yaw is folded onto one turn where an input enters the state.** `protocol.ts` already
+  promised this and nothing did it. It is a trust boundary: yaw is unbounded on the wire,
+  and a finite but enormous value overflows the difference the client takes to interpolate
+  a facing, putting `NaN` into another player's mesh rotation. The counter-argument is
+  that the interpolator has to wrap its delta regardless — true, and it still does, since
+  two angles inside one turn can still straddle the seam. Neither replaces the other.
+- **One `wrapAngle`, written as `atan2(sin, cos)`.** The usual subtract-a-multiple-of-a-turn
+  form is cheaper but returns rubbish near `Number.MAX_VALUE`, where the subtraction is
+  all rounding error — which is precisely the input this has to survive. `controls.ts`
+  dropped its own copy for it.
+- **Whether a match exists is derived from the lobby phase at the end of every transition,
+  not raised as an effect.** `leave` on the last member resets to a fresh lobby with *no
+  effects at all*, so an effect-driven teardown misses exactly the case that matters and
+  leaves a match ticking against nobody, with a second timer stacked on the next one. The
+  same evaluation drops departed players from the simulation; it never inserts, because a
+  join is refused once a match is running.
+- **Input outside a running match is dropped, silently.** Not queued — holding frames
+  through a pause bursts the backlog into the tick that resumes it, which is a teleport.
+  Not rejected either: a client whose loop starts a tick early is not one to disconnect.
+- **The input queue is capped at the client's permitted catch-up.** A backgrounded tab
+  returns owing up to `MAX_CATCHUP_MS` of steps and releases them at once, so anything
+  smaller clips a legitimate burst. The constant lives in `shared` because both sides
+  size themselves from it.
+- **Spawns are assigned once, at match start, and pinned into the state.** An index into
+  the member list would shift the moment somebody left, teleporting everyone still
+  playing. The sandbox map grew to one spawn per lobby seat for the same reason players
+  cannot be stacked: nothing collides two players with each other.
+- **The client enters a match on `matchStart` only, and leaves only when the socket
+  closes.** A mid-match departure re-syncs the lobby to everyone still in it, so entering
+  on `lobbyState.phase` would rebuild the renderer on every quit. And there is no
+  transition in which a connected client sees the phase leave `inProgress` — `close`
+  disconnects everybody — so a phase-driven exit would be dead code guarding the one path
+  that is real. Teardown lives in `showJoinScreen`, which every disconnect already goes
+  through.
+- **Aim is drawn at the frame rate; position is drawn between the last two predicted
+  steps.** Rendering the raw predicted state at 20 Hz holds the view still for two frames
+  and then moves it a third of a metre, which reads as a stutter; interpolating costs at
+  most one step of positional lag and none at all on the aim, which is where lag is felt.
+  The previous position is captured inside the step loop, not before it, or a frame that
+  runs two steps draws the camera at half speed; and a correction sets both, or the camera
+  sweeps through it over the following step — backwards, when the correction was.
+- **`reconcile` takes no local state.** A correction starts from the server's word by
+  definition, so the same call that handles the steady state also builds the very first
+  one — no `if (first)` branch, and no second place a `MovementState` is constructed.
+  Replay uses the yaw each input was *sent* with, because that is what the server ran it
+  with; the live camera yaw would predict a path nobody simulated.
+- **Remote players are interpolated from the last two snapshots and their arrival times,
+  with the fraction clamped.** Clamping is what makes a stall freeze them where they were
+  last seen instead of sliding them through walls. The drawing is driven by the newest
+  snapshot, so a player who has gone stops being drawn at once and one who has just
+  arrived is drawn where they are rather than streaking in from the origin.
+- **The pending-input buffer is not capped.** It only grows while the client is stepping
+  and unacknowledged, and it stops stepping when the match is not running; the 15 s socket
+  heartbeat bounds everything else. Replaying a few hundred steps is milliseconds, so a
+  cap here would be code that cannot run.
+- **A tapped jump is latched; the movement keys are not.** A step is a tick in a match, so
+  a press and release inside 50 ms is invisible in the held state — well inside what a
+  player does, and something the sandbox's 60 Hz loop could never reproduce. Latching a
+  direction instead would turn a tap into a whole step of travel.
+- **The renderer rig is shared by the sandbox and a match, the loops are not.** The
+  sandbox exists to judge how a match feels, so a different field of view would make the
+  tuning a lie. The loops stay apart because one is shaped by a server — a step is a tick,
+  and what is drawn is a prediction being corrected — and the other has nothing to be
+  corrected by.
+- **The host's controls are lifted out of the layout the game view covers.** Otherwise the
+  only way to end a running match is a reload, which drops the host from the lobby, hands
+  it to somebody else and leaves the match running. Pinned to a corner rather than left
+  centred, where they would sit under the crosshair and catch the click that recaptures
+  the mouse.
+
 ## Technical details
 
 Finer-grained practices worth locking in now, since they're much cheaper to follow from M0 than to retrofit after M3.
@@ -310,7 +422,7 @@ Finer-grained practices worth locking in now, since they're much cheaper to foll
 **Fixed timestep loop.** The server steps `simulate` on a fixed interval (`1000 / TICK_RATE_HZ`), independent of how often network I/O happens to fire. Don't drive simulation off "whenever a message arrives" — that makes match behavior depend on network jitter, which defeats the purpose of an authoritative server.
 
 **Client-side prediction + reconciliation** (standard FPS netcode, needed for the "smooth" requirement even on low-latency LAN):
-1. Client applies its own input to local state immediately using the *same* `simulate` function from `shared`, and renders that — no waiting for the server round-trip.
+1. Client applies its own input to local state immediately using the *same* movement step from `shared` that the server's `simulate` folds over every player, and renders that — no waiting for the server round-trip. (Written as "the same `simulate` from `shared`" before M3; see the M3 design log for why only the step itself is shared.)
 2. Every input sent to the server carries an incrementing sequence number; the client keeps a short ring buffer of `{seq, input}` it hasn't yet seen acknowledged.
 3. On each server snapshot (which echoes the last-processed seq for that player), the client discards acked inputs from the buffer, snaps to the server's authoritative state, then replays the remaining unacked inputs on top — so a brief server round-trip doesn't feel like rubber-banding.
 4. Remote players (not the local client) are never predicted — they're rendered via interpolation between the last two received snapshots, deliberately ~1 tick behind, to smooth over tick-rate vs. render-rate mismatch.
