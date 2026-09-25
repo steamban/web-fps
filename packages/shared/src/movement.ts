@@ -38,6 +38,19 @@ export interface MovementState {
   readonly grounded: boolean;
 }
 
+/**
+ * Fold an angle onto a single turn.
+ *
+ * Written with `atan2` rather than by subtracting a multiple of a turn because this runs
+ * on yaw that arrived over a socket: at a magnitude near `Number.MAX_VALUE` that
+ * subtraction is all rounding error and lands nowhere near a turn, while sine and cosine
+ * are bounded whatever they are handed. Applied to the *difference* of two angles it is
+ * also the short way round, which is what interpolating a facing needs.
+ */
+export function wrapAngle(angle: number): number {
+  return Math.atan2(Math.sin(angle), Math.cos(angle));
+}
+
 export function playerBox(position: Vec3): Aabb {
   return {
     min: { x: position.x - PLAYER_HALF_WIDTH, y: position.y, z: position.z - PLAYER_HALF_WIDTH },
