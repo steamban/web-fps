@@ -98,7 +98,9 @@ All read through one `packages/server/src/config.ts`: parses `process.env` once 
 
 ## Network protocol (sketch, lives in `packages/shared`)
 
-Client → Server: `join`, `input` (movement keys + look angle, sent per tick), `fire`, `pause` (host only), `kick` (host only), `start` (host only), `close` (host only)
+Client → Server: `join`, `input` (movement keys + look angle + the weapon fired on that frame, sent per tick), `pause` (host only), `kick` (host only), `start` (host only), `close` (host only)
+
+`fire` was a message of its own in this sketch until M4 folded it into `input` — see the M4 design log for why.
 
 Server → Client: `lobbyState`, `matchStart`, `snapshot` (positions/health/etc, sent per tick), `hit`, `death`, `respawn`, `matchEnd`, `kicked`
 
@@ -410,6 +412,113 @@ exists, the condition that would reverse it.
   it to somebody else and leaves the match running. Pinned to a corner rather than left
   centred, where they would sit under the crosshair and catch the click that recaptures
   the mouse.
+
+### M4 — Combat
+
+- **A shot is something an input frame did, not a message of its own.** `fire` left the
+  protocol and `input` gained a nullable weapon slot. The separate message bought nothing:
+  the server simulates at `TICK_RATE_HZ`, so both are resolved at the next tick either
+  way, and it cost a second queue with its own cap, its own cleanup when a player leaves,
+  its own out-of-match guard, and a shot whose aim came from a different frame than the
+  one the server ran. Riding the frame also means a frame dropped by the monotonic `seq`
+  guard takes its shot with it, so a resend cannot fire twice. Reverse only if a trigger
+  ever needs to beat the tick — which would mean latching the look at mousedown and
+  sending it with the frame, not a message of its own again.
+- **A requested shot carries its own ray, captured at the frame that fired it.** The first
+  implementation re-derived the ray from the shooter after the whole tick had been folded,
+  which is wrong in exactly the case the fold exists for: two input frames land in one tick
+  whenever the clocks drift, and the bullet then went where the *later* frame was looking —
+  missing what the crosshair was on when the player clicked, and hitting whatever a flick
+  landed on afterwards. Only the targets come from the state the tick left behind. Aim is
+  therefore at worst one step old (up to 50 ms at the default rate, which a fast flick turns
+  into a couple of metres of lateral error at ten) and never one step ahead of the click.
+  That lag is the ceiling PLAN.md already accepts — no rewind buffer, LAN only — and it is
+  bounded by the tick rate exactly as movement is.
+- **Fire rate is quantised to the tick and floored at one.** `ceil(90 / 50)` makes the
+  SMG's 90 ms interval 100 ms at 20 Hz, and nobody can fire faster than `TICK_RATE_HZ`
+  whatever the table says — the same tick dependence the jump apex has. The floor is what
+  lets a tick collect one requested shot per player instead of a queue of them, and no
+  weapon in the v1 table comes near it at any supported rate. Whoever measures DPS against
+  `LOADOUT` and finds it low is finding this.
+  Dividing the interval by `dtMs` also rounds a tick long at two odd rates — the knife at
+  122 Hz and 206 Hz, 8 ms — which is not worth taking the rate as an argument for, since
+  every other caller of a timestep in this repo owns the rate itself.
+- **One cooldown clock for all three weapons.** Per-weapon cooldowns would let a player
+  alternate slots and fire at the sum of both rates, which is a worse first bug than
+  "switching feels slow" is a problem.
+- **A target at zero distance is not a target.** Nothing pushes two players apart in v1, so
+  standing inside each other is reachable play; both eyes are then inside both boxes and the
+  ray enters at zero metres whichever way it points, so the pair would shoot each other dead
+  while looking at the sky. They do not block each other's shots either — somebody standing
+  in you is not cover. Revisit if players are ever made solid.
+- **Shots are resolved after movement, against a frozen world.** Every shot in a tick sees
+  where that tick left everyone and how much health they had before any of it landed.
+  Resolving them one at a time would let whoever was iterated first survive a trade; two
+  players who shoot each other in the same tick now both die. `resolveShots` therefore
+  walks `state.players`, never the requested-shots map, so the result is a function of the
+  state rather than of socket arrival order.
+- **Kill credit goes to the last shooter in player order** when more than one lands a
+  killing blow in the same tick. Deterministic given a state, which is what the tests
+  pin, and fine for a scoreboard; a killfeed people argue about would want something
+  better, and M6 is where that would be noticed.
+- **No head hitbox, and `headshotMultiplier` stays unused data.** The eye is 1.65 m up
+  inside an 1.8 m box, so any band wide enough to be hittable contains the height every
+  player's crosshair sits at on a flat floor: with no spread and no recoil in v1, *every*
+  level shot would be a headshot and `damage` would become dead data. A band above eye
+  level instead is 0.1 m subtending half a degree at ten metres — a different guess in the
+  other direction. Neither is answerable without a hit marker to see it with, so this
+  waits for M6, and with it a rounding rule keeping `damage * multiplier` whole.
+- **M4 emits no new server-to-client frames.** `health`, `alive`, `score` and `deaths`
+  have ridden the snapshot since M3 and are broadcast every tick, which covers everything
+  this milestone needs; `hit` and `death` stay defined and unsent because
+  `death.respawnAtTick` cannot be filled honestly until M5 respawns somebody. The ceiling:
+  three hits inside one tick read as a single health drop, and nothing yet carries who
+  killed whom, so M5 (respawn) or M6 (killfeed, hit marker) is where `simulate` widens to
+  `{ state, events }` — the shape `lobby.ts` already uses.
+- **Ray geometry went into `collision.ts`; the rules went into `server/combat.ts`.** M3's
+  precedent is to put a function where its caller is, and this deviates deliberately: the
+  wedge test calls `rampSurfaceHeight`, the same function the renderer builds the visible
+  slope from, so what stops a bullet is literally what you can see and stand on. What
+  stayed in `server` is every rule a client must not decide — who is hittable, what a
+  weapon reaches, what it costs, and who gets the credit.
+- **A ramp is a wedge to a ray while it stays a height field to movement.** Shooting the
+  ramp's bounding box would put an invisible wall over the low end of every slope. The two
+  models now disagree in exactly one place — the sliver under a suspended ramp, which no
+  map has and which `moveVertical` already flags — and a map that suspends one needs real
+  wedge collision on both sides.
+- **The shooter is excluded from their own shot by id, not by distance.** Their eye sits
+  inside their own hitbox, so the ray enters it at zero metres: without the exclusion the
+  first trigger pull of every match is a suicide, and a one-player playtest cannot show it.
+  The dead are excluded for the opposite reason — a corpse must not be cover.
+- **`alive` is derived from `health`, never stored.** Two fields for one fact disagree as
+  soon as a write site updates one of them, and `alive` is on the wire where that would be
+  visible to everyone at once.
+- **A corpse is not stepped, but its frames are still acknowledged.** It neither walks nor
+  falls; without the ack its client would hold and replay the same unacknowledged buffer
+  for as long as the body lies there.
+- **The client stops predicting while dead, and nobody draws the dead.** Otherwise a dead
+  player walks around locally and is snapped back on every snapshot — the rubber-band the
+  whole of M3's netcode exists to avoid. `interpolatePlayers` is handed only the living,
+  so the existing mesh cleanup removes the body with no new code. The gate lives in
+  `game.ts`, which is still the one client file with no test of its own: M4 kept the logic
+  it could in `controls.ts`, `netcode.ts` and `main.ts`, where the tests are, and what is
+  left there is three lines of wiring. Build the stubbed-renderer harness when that stops
+  being true.
+- **A trigger is only live while the mouse is captured, and the latches are drained
+  whenever nothing is stepping.** Pointer lock can end in the middle of a hold — Esc
+  releases it and no mouseup ever arrives — so the capture is rechecked where the shot is
+  taken rather than trusted from the press. And a step is the only thing that consumes a
+  latch, so a click or a tap of space while dead or paused sat there and went off on the
+  first step afterwards: a round spent on nothing, or a jump at the moment of a respawn.
+- **`aimDirection` is the single definition of where a player is looking**, and the camera
+  agrees with it only under one euler order, so that order is a named export with a test
+  holding the two together. A shot that lands somewhere other than the crosshair is the
+  most expensive thing this milestone could ship and the least visible: it needs two people
+  to notice, and it would be blamed on hitboxes.
+- **A match with no respawn ends at the first kill in practice.** Nothing here is worth
+  patching with half of M5 — the body lies where it fell, the Eliminated banner counts
+  down to nothing, and the right response is to start M5 rather than to playtest M4 at
+  length.
 
 ## Technical details
 

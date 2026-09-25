@@ -6,13 +6,15 @@ Full design and milestone breakdown: [PLAN.md](./PLAN.md).
 
 ## Status
 
-**M3 — Multiplayer sync.** Start a match and you are all in the same map. The server
-simulates every player and broadcasts where everyone is; each client predicts its own
-movement immediately and reconciles against what comes back, and draws everyone else
-interpolated between the last two snapshots.
+**M4 — Combat.** Start a match and you can shoot each other. Every player carries the
+same three weapons; the server raycasts each shot from where that tick left the shooter,
+against the other players' hitboxes and through the map's geometry, and takes the health
+off. A player at zero health stops moving and stops being drawn.
 
-Not built yet: weapons and hits (M4), so there is nothing to do to each other yet, and no
-round flow, scoreboard or HUD (M5, M6).
+Not built yet: respawn, spawn protection, the win condition and the scoreboard (M5), so a
+match effectively ends at the first kill; and no HUD — health, ammo, crosshair, killfeed
+or hit marker (M6). Ammo and reloading do not exist yet either: the weapons' fire rates
+bound how fast you can shoot, and nothing runs dry.
 
 ## Layout
 
@@ -59,7 +61,8 @@ else sees the player list. Open a second browser tab to play both sides — or s
 `GAME_MODE=dev` to start a match on your own.
 
 Once the host presses Start you are in the map: click to capture the mouse, WASD and
-Space to move, Esc to release it. The host keeps Pause and Close in the top-right corner.
+Space to move, click to fire, 1, 2 and 3 to switch between the SMG, the pistol and the
+knife, Esc to release the mouse. The host keeps Pause and Close in the top-right corner.
 
 **Movement sandbox** — the button under Join. It needs no server at all: it drops you into
 the map alone so the movement can be tuned without a network round trip in the way. Click
@@ -71,6 +74,12 @@ as pure `(state, args) -> { state, effects }` transitions, and the match in
 with no clock and no sockets in it. [`net.ts`](./packages/server/src/net.ts) is the shell
 that owns both of those things and carries the effects out. That split is what lets every
 transition and every tick be proved by calling a function.
+
+Combat follows the same split. [`combat.ts`](./packages/server/src/combat.ts) owns every
+rule a client must not decide — who is hittable, what a weapon reaches, what it costs and
+who gets the credit — and the geometry it asks is a ray against the same map data
+movement collides with. Shots are resolved after movement, against the state the tick
+left behind, so two players who shoot each other in the same tick both die.
 
 Movement is the same idea. [`collision.ts`](./packages/shared/src/collision.ts) moves a box
 through map geometry and knows nothing else;
