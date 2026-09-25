@@ -48,7 +48,11 @@ export function keyField(code: string): keyof InputKeys | null {
 }
 
 export interface Controls {
-  /** A snapshot of what is held right now; writing to it changes nothing. */
+  /**
+   * What is held right now, plus a jump that was pressed and released since the last
+   * call. Reading consumes that latch, so each tap is reported to exactly one step.
+   * Writing to the result changes nothing.
+   */
   keys(): InputKeys;
   look(): Look;
   dispose(): void;
@@ -65,11 +69,19 @@ const NOTHING_HELD: InputKeys = {
 export function createControls(canvas: HTMLElement, startYaw: number): Controls {
   let held: InputKeys = { ...NOTHING_HELD };
   let look: Look = { yaw: startYaw, pitch: 0 };
+  /**
+   * A jump pressed and released inside one step, which at the server's 20 Hz tick is a
+   * 40 ms tap — well within what a player actually does. Sampling the held state alone
+   * would see nothing at either boundary and swallow the jump. Only jump is latched:
+   * doing the same to WASD would turn a tap into a whole step of travel.
+   */
+  let tappedJump = false;
 
   const setKey = (event: KeyboardEvent, down: boolean): void => {
     const field = keyField(event.code);
     if (field === null) return;
     held[field] = down;
+    if (down && field === "jump") tappedJump = true;
     // Space scrolls the page otherwise, which drags the canvas out from under the player.
     event.preventDefault();
   };
@@ -81,6 +93,7 @@ export function createControls(canvas: HTMLElement, startYaw: number): Controls 
   // back would find the player still walking.
   const onBlur = (): void => {
     held = { ...NOTHING_HELD };
+    tappedJump = false;
   };
 
   const onMouseMove = (event: MouseEvent): void => {
@@ -99,7 +112,11 @@ export function createControls(canvas: HTMLElement, startYaw: number): Controls 
   canvas.addEventListener("click", onClick);
 
   return {
-    keys: () => ({ ...held }),
+    keys: () => {
+      const sample = { ...held, jump: held.jump || tappedJump };
+      tappedJump = false;
+      return sample;
+    },
     look: () => look,
     dispose(): void {
       window.removeEventListener("keydown", onKeyDown);

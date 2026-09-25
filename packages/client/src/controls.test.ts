@@ -114,12 +114,33 @@ describe("createControls", () => {
     expect(other.defaultPrevented).toBe(false);
   });
 
+  it("reports a jump tapped and released between two samples", () => {
+    // The match samples at the server's tick — 50 ms — so a tap that starts and ends
+    // between two samples is invisible in the held state, and the jump never happens.
+    controls = createControls(canvas(), 0);
+    press("Space");
+    release("Space");
+
+    expect(controls.keys().jump).toBe(true);
+    // Consumed by that read, so one tap cannot become two jumps.
+    expect(controls.keys().jump).toBe(false);
+  });
+
+  it("does not latch the movement keys, only jump", () => {
+    // Latching a direction would turn a tap into a whole step of travel.
+    controls = createControls(canvas(), 0);
+    press("KeyW");
+    release("KeyW");
+    expect(controls.keys().forward).toBe(false);
+  });
+
   it("drops every held key when the window loses focus", () => {
     controls = createControls(canvas(), 0);
     press("KeyW");
     press("KeyD");
+    press("Space");
     window.dispatchEvent(new Event("blur"));
-    expect(controls.keys()).toMatchObject({ forward: false, right: false });
+    expect(controls.keys()).toMatchObject({ forward: false, right: false, jump: false });
   });
 
   it("turns the view only while the pointer is locked to the canvas", () => {
