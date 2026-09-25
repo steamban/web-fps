@@ -12,7 +12,7 @@ import { WEAPON_SLOTS } from "./weapons";
  */
 
 /** Bumped on any incompatible wire change; mismatched clients are rejected at `join`. */
-export const PROTOCOL_VERSION = 2 as const;
+export const PROTOCOL_VERSION = 3 as const;
 
 /** Path the WebSocket endpoint is mounted at. Both sides read it from here so it cannot drift. */
 export const WS_PATH = "/ws";
@@ -72,6 +72,13 @@ export const JoinMessageSchema = z.object({
  * `snapshot.ackSeq` so the client knows which predicted inputs to replay. The schema
  * cannot police "monotonic" — a frame carrying 5, 5, 3 is well-formed — so the server
  * drops anything not above what it has already simulated for that player.
+ *
+ * `fire` names the weapon this frame pulled the trigger on, or null for a frame that did
+ * not. A shot is something an input frame did rather than a message of its own: the server
+ * resolves it from where this frame's movement leaves the shooter, along this frame's yaw
+ * and pitch, so the shot and the aim it was taken with cannot come apart. A frame the
+ * server's monotonic guard drops takes its shot with it, which is what stops a replayed
+ * frame firing twice.
  */
 export const InputMessageSchema = z.object({
   type: z.literal("input"),
@@ -79,12 +86,7 @@ export const InputMessageSchema = z.object({
   keys: InputKeysSchema,
   yaw: YawSchema,
   pitch: PitchSchema,
-});
-
-export const FireMessageSchema = z.object({
-  type: z.literal("fire"),
-  seq: z.number().int().nonnegative(),
-  slot: WeaponSlotSchema,
+  fire: WeaponSlotSchema.nullable(),
 });
 
 export const StartMessageSchema = z.object({ type: z.literal("start") });
@@ -98,7 +100,6 @@ export const KickMessageSchema = z.object({
 export const ClientMessageSchema = z.discriminatedUnion("type", [
   JoinMessageSchema,
   InputMessageSchema,
-  FireMessageSchema,
   StartMessageSchema,
   PauseMessageSchema,
   CloseMessageSchema,

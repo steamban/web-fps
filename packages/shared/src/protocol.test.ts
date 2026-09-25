@@ -20,6 +20,7 @@ const validInput = {
   keys: { forward: true, back: false, left: false, right: true, jump: false },
   yaw: 1.2,
   pitch: -0.4,
+  fire: null,
 };
 
 describe("decodeClientMessage", () => {
@@ -118,6 +119,26 @@ describe("input validation", () => {
   it("rejects a partial key set", () => {
     const { jump: _jump, ...partial } = validInput.keys;
     expect(ClientMessageSchema.safeParse({ ...validInput, keys: partial }).success).toBe(false);
+  });
+
+  it("accepts a frame that fired a weapon", () => {
+    const shot = { ...validInput, fire: "primary" as const };
+    expect(decodeClientMessage(encodeMessage(shot))).toEqual(shot);
+  });
+
+  it("rejects a weapon nobody carries", () => {
+    expect(ClientMessageSchema.safeParse({ ...validInput, fire: "rocket" }).success).toBe(false);
+  });
+
+  it("rejects a frame with no trigger state at all", () => {
+    // Required rather than defaulted on purpose: an M3 client that never sends the field
+    // should fail at `join` and be told to reload, not join and silently never shoot.
+    const { fire: _fire, ...triggerless } = validInput;
+    expect(ClientMessageSchema.safeParse(triggerless).success).toBe(false);
+  });
+
+  it("has no separate fire message: a shot is something an input frame did", () => {
+    expect(decodeClientMessage('{"type":"fire","seq":1,"slot":"primary"}')).toBeNull();
   });
 });
 

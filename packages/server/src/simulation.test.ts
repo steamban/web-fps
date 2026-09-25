@@ -28,6 +28,7 @@ const input = (playerId: PlayerId, seq: number, over: Partial<PlayerInput> = {})
   keys: HELD,
   yaw: 0,
   pitch: 0,
+  fire: null,
   ...over,
 });
 

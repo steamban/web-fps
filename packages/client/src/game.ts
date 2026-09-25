@@ -95,7 +95,7 @@ export function startGame(options: GameOptions): Game {
     // reusing one sample across two steps would turn one tap into two jumps.
     const keys = controls.keys();
     seq += 1;
-    send({ type: "input", seq, keys, yaw, pitch });
+    send({ type: "input", seq, keys, yaw, pitch, fire: null });
     pending = [...pending, { seq, keys, yaw }];
 
     stepStart = predicted;

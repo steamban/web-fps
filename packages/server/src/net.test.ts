@@ -288,13 +288,13 @@ describe("wire rejections", () => {
     expect(client.inbox.at(-1)).toEqual({ type: "kicked", reason: "invalidMessage" });
   });
 
-  it("drops input and fire frames sent outside a match without kicking the sender", async () => {
+  it("drops an input frame sent outside a match, shot and all, without kicking the sender", async () => {
     const url = await startServer();
     const client = await join(url, "arvind");
     await lobbyState(client);
 
-    client.send({ type: "input", seq: 1, keys: HELD, yaw: 0, pitch: 0 });
-    client.send({ type: "fire", seq: 1, slot: "primary" });
+    // Trigger pulled too: a shot rides its input frame, so it is dropped with it.
+    client.send({ type: "input", seq: 1, keys: HELD, yaw: 0, pitch: 0, fire: "primary" });
 
     // A client whose loop starts a tick early is not a client to disconnect.
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -365,7 +365,7 @@ describe("a running match", () => {
     await waitFor(() => snapshots(host).at(-1), "first snapshot");
 
     for (let seq = 1; seq <= 4; seq += 1) {
-      host.send({ type: "input", seq, keys: HELD, yaw: 0, pitch: 0 });
+      host.send({ type: "input", seq, keys: HELD, yaw: 0, pitch: 0, fire: null });
     }
 
     const acked = await waitFor(() => snapshots(host).find((s) => s.ackSeq === 4), "ack of seq 4");
@@ -381,7 +381,7 @@ describe("a running match", () => {
     await lobbyState(host, (s) => s.phase === "paused");
 
     const atPause = snapshots(host).at(-1);
-    host.send({ type: "input", seq: 1, keys: HELD, yaw: 0, pitch: 0 });
+    host.send({ type: "input", seq: 1, keys: HELD, yaw: 0, pitch: 0, fire: null });
     await new Promise((resolve) => setTimeout(resolve, 6 * solo.tickIntervalMs));
     expect(snapshots(host).at(-1)).toEqual(atPause);
 

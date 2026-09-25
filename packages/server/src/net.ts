@@ -190,6 +190,7 @@ export function attachLobbyServer(httpServer: Server, config: Config): LobbyServ
       keys: message.keys,
       yaw: message.yaw,
       pitch: message.pitch,
+      fire: message.fire,
     });
     if (queue.length > maxQueuedInputs) queue.splice(0, queue.length - maxQueuedInputs);
     queues.set(playerId, queue);
@@ -235,10 +236,9 @@ export function attachLobbyServer(httpServer: Server, config: Config): LobbyServ
         apply(lobby.close(state, id));
         break;
       case "input":
+        // A shot rides the frame that took it, so it is dropped outside a running match
+        // with the rest of that frame rather than needing a guard of its own.
         enqueue(id, message);
-        break;
-      case "fire":
-        // Accepted but inert until combat lands in M4.
         break;
     }
   }

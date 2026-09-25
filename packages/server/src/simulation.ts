@@ -7,6 +7,7 @@ import {
   type SnapshotPlayer,
   spawnState,
   stepMovement,
+  type WeaponSlot,
   wrapAngle,
 } from "@web-fps/shared";
 import type { Config } from "./config";
@@ -28,6 +29,8 @@ export interface PlayerInput {
   readonly keys: InputKeys;
   readonly yaw: number;
   readonly pitch: number;
+  /** The weapon this frame fired, or null for a frame that held its fire. */
+  readonly fire: WeaponSlot | null;
 }
 
 export interface PlayerSimState {
