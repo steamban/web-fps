@@ -1,4 +1,4 @@
-import type { MapData } from "./map";
+import type { MapData, SpawnPoint } from "./map";
 
 /**
  * The one v1 map: a flat arena with enough shapes to judge movement against — a wall to
@@ -8,11 +8,21 @@ import type { MapData } from "./map";
  * The floor, ceiling and outer walls are the play-area bounds rather than boxes, so
  * `bounds` is the arena shell and everything in `boxes` is something standing in it.
  *
- * Coordinates are metres. Spawn yaws follow the movement convention: yaw 0 faces -z, so
- * each corner spawn is turned to look at the middle.
+ * Coordinates are metres. There is one spawn per lobby seat, because nothing pushes two
+ * players apart — `resolveMove` only knows about the map — so a shared spawn would leave
+ * them standing inside each other for the rest of the match.
  */
 
-const QUARTER_TURN = Math.PI / 4;
+/**
+ * A spawn on the floor, turned to look at the middle of the arena. Forward is
+ * `(-sin yaw, -cos yaw)` (see `movement.ts`), so facing the origin from `(x, z)` is
+ * `atan2(x, z)` — computed rather than written out, since eight hand-typed angles are
+ * eight chances to get a sign wrong and face a player into the wall behind them.
+ */
+const spawn = (x: number, z: number): SpawnPoint => ({
+  position: { x, y: 0, z },
+  yaw: Math.atan2(x, z),
+});
 
 export const SANDBOX_MAP: MapData = {
   name: "sandbox",
@@ -39,10 +49,16 @@ export const SANDBOX_MAP: MapData = {
     // Rises 1.5 m over 6 m onto the north-west platform's south face.
     { box: { min: { x: -4, y: 0, z: 10 }, max: { x: 0, y: 1.5, z: 16 } }, ascend: "-z" },
   ],
+  // Four corners and four edge midpoints: one per seat at the default lobby capacity,
+  // all well clear of the geometry above and of each other.
   spawns: [
-    { position: { x: -18, y: 0, z: -18 }, yaw: -3 * QUARTER_TURN },
-    { position: { x: 18, y: 0, z: -18 }, yaw: 3 * QUARTER_TURN },
-    { position: { x: 18, y: 0, z: 18 }, yaw: QUARTER_TURN },
-    { position: { x: -18, y: 0, z: 18 }, yaw: -QUARTER_TURN },
+    spawn(-18, -18),
+    spawn(18, -18),
+    spawn(18, 18),
+    spawn(-18, 18),
+    spawn(0, -20),
+    spawn(20, 0),
+    spawn(0, 20),
+    spawn(-20, 0),
   ],
 };

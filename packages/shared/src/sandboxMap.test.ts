@@ -123,8 +123,25 @@ describe("SANDBOX_MAP", () => {
     }
   });
 
-  it("gives every player somewhere different to start", () => {
-    const seen = new Set(SANDBOX_MAP.spawns.map((s) => `${s.position.x},${s.position.z}`));
-    expect(seen.size).toBe(SANDBOX_MAP.spawns.length);
+  it("seats a full lobby without standing two players in the same place", () => {
+    // MAX_PLAYERS defaults to 8, and nothing collides players with each other, so a map
+    // with fewer spawns than seats leaves the last arrivals inside the first ones.
+    expect(SANDBOX_MAP.spawns.length).toBeGreaterThanOrEqual(8);
+
+    for (const [index, spawn] of SANDBOX_MAP.spawns.entries()) {
+      for (const other of SANDBOX_MAP.spawns.slice(index + 1)) {
+        expect(aabbOverlaps(playerBox(spawn.position), playerBox(other.position))).toBe(false);
+      }
+    }
+  });
+
+  it("turns every spawn to look at the middle", () => {
+    // The corner spawns exist to point a player inwards; a sign error here spawns them
+    // facing the wall at their back, which is only visible by playing.
+    for (const { position, yaw } of SANDBOX_MAP.spawns) {
+      const forward = { x: -Math.sin(yaw), z: -Math.cos(yaw) };
+      const toMiddle = Math.hypot(position.x, position.z);
+      expect(forward.x * -position.x + forward.z * -position.z).toBeCloseTo(toMiddle);
+    }
   });
 });
