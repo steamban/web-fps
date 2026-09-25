@@ -48,6 +48,7 @@ const ui = {
   sandbox: el<HTMLButtonElement>("sandbox"),
   game: el("game"),
   view: el<HTMLCanvasElement>("view"),
+  dead: el("dead"),
 };
 
 const KICK_TEXT: Record<KickReason, string> = {
@@ -153,6 +154,7 @@ function showJoinScreen(message: string): void {
   match?.dispose();
   match = null;
   ui.game.hidden = true;
+  ui.dead.hidden = true;
   ui.lobby.hidden = true;
   ui.form.hidden = false;
   ui.status.textContent = message;
@@ -232,9 +234,14 @@ ui.form.addEventListener("submit", (event) => {
       case "matchStart":
         enterMatch(message);
         break;
-      case "snapshot":
+      case "snapshot": {
         match?.snapshot(message);
+        // The one piece of combat feedback M4 has. Everything richer — health, the
+        // killfeed, a hit marker — is M6's HUD, and the respawn it counts down to is M5's.
+        const self = message.players.find((player) => player.id === current?.selfId);
+        ui.dead.hidden = self?.alive !== false;
         break;
+      }
       case "kicked":
         // Explains a disconnect that is about to happen.
         farewell = KICK_TEXT[message.reason];

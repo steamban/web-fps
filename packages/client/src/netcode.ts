@@ -109,9 +109,10 @@ export function interpolatePlayers(
   const t = Math.min(Math.max(fraction, 0), 1);
   const before = new Map(previous.map((player) => [player.id, player]));
 
-  // Driven by the latest snapshot, so somebody who has left stops being drawn at once.
+  // Driven by the latest snapshot, so somebody who has left stops being drawn at once —
+  // and so is somebody who has died, who is not anywhere until M5 respawns them.
   return latest
-    .filter((player) => player.id !== self)
+    .filter((player) => player.id !== self && player.alive)
     .map((player) => {
       // Nowhere to come from on a player's first snapshot; drawing them where they are
       // beats streaking them in from the map's origin.

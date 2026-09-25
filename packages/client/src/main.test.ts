@@ -291,6 +291,35 @@ describe("entering a match", () => {
     expect(game.dispose).not.toHaveBeenCalled();
   });
 
+  it("says so when the local player has been eliminated, and stops saying so", () => {
+    const socket = joinedLobby();
+    socket.deliver(matchStart());
+
+    const self = (alive: boolean) => ({
+      id: "h",
+      position: { x: 0, y: 0, z: 0 },
+      yaw: 0,
+      pitch: 0,
+      velocityY: 0,
+      grounded: true,
+      health: alive ? 100 : 0,
+      alive,
+      spawnProtected: false,
+      score: 0,
+      deaths: alive ? 0 : 1,
+    });
+
+    socket.deliver({ type: "snapshot", tick: 4, ackSeq: 1, players: [self(true)] });
+    expect(el("dead").hidden).toBe(true);
+
+    socket.deliver({ type: "snapshot", tick: 5, ackSeq: 1, players: [self(false)] });
+    expect(el("dead").hidden).toBe(false);
+
+    // M5 respawns them; the banner has to go when it does.
+    socket.deliver({ type: "snapshot", tick: 6, ackSeq: 1, players: [self(true)] });
+    expect(el("dead").hidden).toBe(true);
+  });
+
   it("keeps the host's controls reachable over the match", () => {
     const socket = joinedLobby();
     socket.deliver(lobbyState({ phase: "inProgress" }));

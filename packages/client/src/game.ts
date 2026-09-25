@@ -88,6 +88,10 @@ export function startGame(options: GameOptions): Game {
 
   let lastFrame: number | null = null;
   let accumulated = 0;
+  /** The server stops stepping a dead player, so this stops predicting one: walking a
+   *  corpse around locally only to be snapped back every snapshot is the rubber-band the
+   *  whole of this file exists to avoid. */
+  let alive = true;
 
   /** One step: tell the server, remember it, and act on it without waiting to be told. */
   function step(yaw: number, pitch: number): void {
@@ -147,13 +151,13 @@ export function startGame(options: GameOptions): Game {
     accumulated = Math.min(accumulated + elapsed, MAX_CATCHUP_MS);
 
     const look = controls.look();
-    if (isRunning()) {
+    if (isRunning() && alive) {
       while (accumulated >= stepMs) {
         step(look.yaw, look.pitch);
         accumulated -= stepMs;
       }
     } else {
-      // Nothing to catch up on when the match resumes: the server did not step either.
+      // Nothing to catch up on when this ends: the server did not step either.
       accumulated = 0;
     }
 
@@ -173,6 +177,7 @@ export function startGame(options: GameOptions): Game {
 
       const self = message.players.find((player) => player.id === selfId);
       if (!self) return;
+      alive = self.alive;
 
       const corrected = reconcile(self, message.ackSeq, pending, map, stepMs);
       pending = corrected.pending;

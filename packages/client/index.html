@@ -126,6 +126,19 @@
         height: 100%;
         cursor: crosshair;
       }
+      /* Death is M4's whole feedback: the body stops being drawn for everyone else and
+         the player it happened to is told, until M5's respawn timer takes over. */
+      #dead:not([hidden]) {
+        position: absolute;
+        left: 50%;
+        top: 42%;
+        transform: translate(-50%, -50%);
+        margin: 0;
+        font-size: 1.5rem;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: #e2828f;
+      }
       #hint {
         position: absolute;
         left: 50%;
@@ -168,9 +181,11 @@
 
       <section id="game" hidden>
         <canvas id="view"></canvas>
+        <p id="dead" hidden>Eliminated</p>
         <p id="hint">
-          Click to look around &middot; WASD to move &middot; Space to jump &middot; Esc to
-          release the mouse &middot; <a href="/">leave</a>
+          Click to look around &middot; WASD to move &middot; Space to jump &middot; Click to
+          fire &middot; 1 2 3 to switch weapon &middot; Esc to release the mouse &middot;
+          <a href="/">leave</a>
         </p>
       </section>
     </main>

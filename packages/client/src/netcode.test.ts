@@ -172,6 +172,13 @@ describe("interpolatePlayers", () => {
     expect(drawn[0]?.position.x).toBe(18);
   });
 
+  it("stops drawing a player the server says is dead", () => {
+    // A corpse is not drawn and, until M5 respawns them, not there at all. game.ts drops
+    // the mesh of anyone it is not handed, so nothing else has to know about death.
+    const dead = { ...at("a", 4), alive: false, health: 0 };
+    expect(interpolatePlayers([at("a", 0)], [dead, at("b", 1)], 0.5, "me")).toHaveLength(1);
+  });
+
   it("stops drawing anyone the latest snapshot no longer has", () => {
     const drawn = interpolatePlayers([at("a", 0), at("gone", 5)], [at("a", 4)], 0.5, "me");
     expect(drawn.map((player) => player.id)).toEqual(["a"]);
