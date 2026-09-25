@@ -148,6 +148,8 @@ describe("decodeServerMessage", () => {
         position: { x: 1, y: 2, z: 3 },
         yaw: 0,
         pitch: 0,
+        velocityY: -4.5,
+        grounded: false,
         health: 100,
         alive: true,
         spawnProtected: false,
@@ -167,6 +169,36 @@ describe("decodeServerMessage", () => {
       players: [{ ...snapshot.players[0], health: -1 }],
     };
     expect(ServerMessageSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects a snapshot player missing the state a replay needs", () => {
+    // Dropping either field leaves the recipient unable to restore its own MovementState
+    // before replaying, which mispredicts a jump or a fall in a way nothing else catches.
+    for (const field of ["velocityY", "grounded"] as const) {
+      const { [field]: _dropped, ...rest } = snapshot.players[0] ?? {};
+      expect(ServerMessageSchema.safeParse({ ...snapshot, players: [rest] }).success).toBe(false);
+    }
+  });
+
+  it("round-trips a matchStart carrying the recipient's own spawn", () => {
+    const matchStart = {
+      type: "matchStart" as const,
+      tick: 0,
+      tickRateHz: 20,
+      killLimit: 30,
+      timeLimitMs: 600_000,
+      map: {
+        name: "test",
+        bounds: { min: { x: -1, y: 0, z: -1 }, max: { x: 1, y: 3, z: 1 } },
+        boxes: [],
+        ramps: [],
+        spawns: [{ position: { x: 0, y: 0, z: 0 }, yaw: 0 }],
+      },
+      spawn: { position: { x: 0, y: 0, z: 0 }, yaw: 1.5 },
+    };
+    expect(decodeServerMessage(encodeMessage(matchStart))).toEqual(matchStart);
+    const { spawn: _none, ...withoutSpawn } = matchStart;
+    expect(ServerMessageSchema.safeParse(withoutSpawn).success).toBe(false);
   });
 
   it("does not accept a client message", () => {

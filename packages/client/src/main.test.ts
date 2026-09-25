@@ -1,5 +1,10 @@
 // @vitest-environment happy-dom
-import { type ClientMessage, encodeMessage, type ServerMessage } from "@web-fps/shared";
+import {
+  type ClientMessage,
+  encodeMessage,
+  PROTOCOL_VERSION,
+  type ServerMessage,
+} from "@web-fps/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import HTML from "../index.html?raw";
 
@@ -112,7 +117,9 @@ describe("joining", () => {
     expect(socket?.url).toBe("ws://192.168.1.5:8080/ws");
 
     socket?.accept();
-    expect(socket?.frames()).toEqual([{ type: "join", protocolVersion: 1, name: "arvind" }]);
+    expect(socket?.frames()).toEqual([
+      { type: "join", protocolVersion: PROTOCOL_VERSION, name: "arvind" },
+    ]);
 
     socket?.deliver(lobbyState());
     expect(el("join-form").hidden).toBe(true);
@@ -155,7 +162,7 @@ describe("joining", () => {
     const socket = submitJoin("192.168.1.5:8080", "\u{1F9D1}‍\u{1F4BB}arvind");
     socket?.accept();
     expect(socket?.frames()).toEqual([
-      { type: "join", protocolVersion: 1, name: "\u{1F9D1}‍\u{1F4BB}arvind" },
+      { type: "join", protocolVersion: PROTOCOL_VERSION, name: "\u{1F9D1}‍\u{1F4BB}arvind" },
     ]);
   });
 });

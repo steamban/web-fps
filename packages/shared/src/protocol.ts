@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Vec3Schema } from "./geometry";
-import { MapDataSchema } from "./map";
+import { MapDataSchema, SpawnPointSchema } from "./map";
 import { WEAPON_SLOTS } from "./weapons";
 
 /**
@@ -12,7 +12,7 @@ import { WEAPON_SLOTS } from "./weapons";
  */
 
 /** Bumped on any incompatible wire change; mismatched clients are rejected at `join`. */
-export const PROTOCOL_VERSION = 1 as const;
+export const PROTOCOL_VERSION = 2 as const;
 
 /** Path the WebSocket endpoint is mounted at. Both sides read it from here so it cannot drift. */
 export const WS_PATH = "/ws";
@@ -69,7 +69,9 @@ export const JoinMessageSchema = z.object({
 
 /**
  * Sent once per client tick. `seq` increments monotonically and is echoed back in
- * `snapshot.ackSeq` so the client knows which predicted inputs to replay.
+ * `snapshot.ackSeq` so the client knows which predicted inputs to replay. The schema
+ * cannot police "monotonic" — a frame carrying 5, 5, 3 is well-formed — so the server
+ * drops anything not above what it has already simulated for that player.
  */
 export const InputMessageSchema = z.object({
   type: z.literal("input"),
@@ -126,6 +128,11 @@ export const LobbyStateMessageSchema = z.object({
   players: z.array(LobbyPlayerSchema),
 });
 
+/**
+ * Sent per recipient, like `lobbyState`: `spawn` is the one the server seated *this*
+ * player at. Without it the client cannot face the way the map spawns it, and its first
+ * input would overwrite the server's spawn yaw before anything was ever rendered.
+ */
 export const MatchStartMessageSchema = z.object({
   type: z.literal("matchStart"),
   tick: z.number().int().nonnegative(),
@@ -133,6 +140,7 @@ export const MatchStartMessageSchema = z.object({
   killLimit: z.number().int().positive(),
   timeLimitMs: z.number().int().positive(),
   map: MapDataSchema,
+  spawn: SpawnPointSchema,
 });
 
 export const SnapshotPlayerSchema = z.object({
@@ -140,6 +148,14 @@ export const SnapshotPlayerSchema = z.object({
   position: Vec3Schema,
   yaw: YawSchema,
   pitch: PitchSchema,
+  /**
+   * The rest of what a movement step carries between ticks. Horizontal velocity is
+   * re-derived from the keys every step, so `position`, `velocityY` and `grounded` are
+   * exactly what the recipient needs to restore its own state before replaying the
+   * inputs the server has not acknowledged yet.
+   */
+  velocityY: z.number(),
+  grounded: z.boolean(),
   health: z.number().int().nonnegative(),
   alive: z.boolean(),
   spawnProtected: z.boolean(),
@@ -151,7 +167,12 @@ export type SnapshotPlayer = z.infer<typeof SnapshotPlayerSchema>;
 export const SnapshotMessageSchema = z.object({
   type: z.literal("snapshot"),
   tick: z.number().int().nonnegative(),
-  /** Last `input.seq` from this recipient that the server has simulated. */
+  /**
+   * Last `input.seq` from this recipient folded into *this* snapshot's state; 0 before
+   * the server has simulated any of theirs, which the server's monotonic guard makes
+   * unambiguous. An ack read anywhere but inside the step would name an input the
+   * positions do not yet include.
+   */
   ackSeq: z.number().int().nonnegative(),
   players: z.array(SnapshotPlayerSchema),
 });
