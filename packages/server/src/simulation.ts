@@ -1,4 +1,6 @@
 import {
+  aimDirection,
+  eyePosition,
   type InputKeys,
   MAX_HEALTH,
   type MapData,
@@ -11,7 +13,7 @@ import {
   type WeaponSlot,
   wrapAngle,
 } from "@web-fps/shared";
-import { resolveShots } from "./combat";
+import { resolveShots, type Shot } from "./combat";
 import type { Config } from "./config";
 
 /**
@@ -113,8 +115,11 @@ export function simulate(
   dtMs: number,
 ): GameState {
   // One shot per player per tick: no weapon's cooldown is shorter than a tick, so a burst
-  // of frames could only ever land one of them anyway, and the last frame names it.
-  const requested = new Map<PlayerId, WeaponSlot>();
+  // of frames could only ever land one of them anyway, and the last frame naming one wins.
+  // The ray is captured here, from the frame that fired it — a later frame in the same tick
+  // has a different aim, and dragging the bullet onto it would hit what the player had not
+  // aimed at yet.
+  const requested = new Map<PlayerId, Shot>();
 
   const moved: GameState = {
     ...state,
@@ -141,8 +146,6 @@ export function simulate(
 
         // Yaw is unbounded on the wire; folded here, at the boundary, so that no consumer
         // downstream has to survive a value that overflows the difference between two.
-        if (input.fire !== null) requested.set(player.id, input.fire);
-
         const yaw = wrapAngle(input.yaw);
         next = {
           ...next,
@@ -151,6 +154,14 @@ export function simulate(
           pitch: input.pitch,
           ackSeq: input.seq,
         };
+
+        if (input.fire !== null) {
+          requested.set(player.id, {
+            slot: input.fire,
+            origin: eyePosition(next.movement.position),
+            direction: aimDirection(yaw, input.pitch),
+          });
+        }
       }
 
       // Gravity only advances inside a step, so a player whose frame was late or dropped

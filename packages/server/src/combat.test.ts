@@ -1,4 +1,13 @@
-import { LOADOUT, MAX_HEALTH, type MapData, type PlayerId, type Vec3 } from "@web-fps/shared";
+import {
+  aimDirection,
+  eyePosition,
+  LOADOUT,
+  MAX_HEALTH,
+  type MapData,
+  type PlayerId,
+  type Vec3,
+  type WeaponSlot,
+} from "@web-fps/shared";
 import { describe, expect, it } from "vitest";
 import { fireCooldownTicks, resolveShots } from "./combat";
 import type { GameState, PlayerSimState } from "./simulation";
@@ -51,10 +60,28 @@ const find = (state: GameState, id: PlayerId): PlayerSimState => {
   return player;
 };
 
-const shot = (
-  state: GameState,
-  ...shooters: Array<[PlayerId, "primary" | "secondary" | "melee"]>
-) => resolveShots(state, new Map(shooters), DT);
+/**
+ * A shot carries the ray the frame that fired it saw — `simulate` captures that at the
+ * frame — so a test hands over the same thing rather than a weapon alone.
+ */
+const shot = (state: GameState, ...shooters: Array<[PlayerId, WeaponSlot]>) =>
+  resolveShots(
+    state,
+    new Map(
+      shooters.map(([id, slot]) => {
+        const shooter = find(state, id);
+        return [
+          id,
+          {
+            slot,
+            origin: eyePosition(shooter.movement.position),
+            direction: aimDirection(shooter.yaw, shooter.pitch),
+          },
+        ] as const;
+      }),
+    ),
+    DT,
+  );
 
 describe("fireCooldownTicks", () => {
   it("rounds a weapon's fire interval up to whole ticks", () => {

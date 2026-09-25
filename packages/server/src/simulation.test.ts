@@ -252,6 +252,33 @@ describe("a shot taken on an input frame", () => {
     expect(find(simulate(lane(-20, -19.4), standing, DT), "p2").health).toBe(MAX_HEALTH);
   });
 
+  it("traces the shot along the aim of the frame that fired it", () => {
+    // Two frames land in one tick whenever the two clocks drift — which M3 designed the
+    // fold around. The shot belongs to the frame that pulled the trigger, so a flick on
+    // the frame after it cannot drag the bullet with it.
+    const state = simulate(
+      lane(),
+      [
+        input("p1", 1, { keys: RELEASED, fire: "primary" }),
+        input("p1", 2, { keys: RELEASED, yaw: 1 }),
+      ],
+      DT,
+    );
+    expect(find(state, "p2").health).toBeLessThan(MAX_HEALTH);
+  });
+
+  it("does not drag a shot onto a target the player turned towards after taking it", () => {
+    const state = simulate(
+      lane(),
+      [
+        input("p1", 1, { keys: RELEASED, yaw: 1, fire: "primary" }),
+        input("p1", 2, { keys: RELEASED }),
+      ],
+      DT,
+    );
+    expect(find(state, "p2").health).toBe(MAX_HEALTH);
+  });
+
   it("fires once a tick however many frames carry a trigger, and the last one wins", () => {
     // Both frames are simulated — that is what keeps prediction honest — but a tick is one
     // shot, so the weapon named by the last of them is the one that goes off. Melee cannot
