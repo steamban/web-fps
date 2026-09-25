@@ -155,6 +155,29 @@ describe("a shot", () => {
     expect(find(state, "dead").health).toBe(0);
   });
 
+  it("does not hit a player it is standing inside, whatever it was aimed at", () => {
+    // Nothing pushes two players apart — v1 has no player-vs-player collision — so they
+    // can stand in each other, and each one's eye is then inside the other's box. Hitting
+    // at zero distance would mean the pair kill each other looking at the sky.
+    const stacked = game([
+      standing("p1", { x: 0, y: 0, z: 0 }),
+      standing("p2", { x: 0, y: 0, z: 0 }),
+    ]);
+    expect(find(shot(stacked, ["p1", "primary"]), "p2").health).toBe(MAX_HEALTH);
+  });
+
+  it("is not blocked by the player it is standing inside either", () => {
+    const stacked = game([
+      standing("p1", { x: 0, y: 0, z: 0 }),
+      standing("inside", { x: 0, y: 0, z: 0 }),
+      standing("ahead", { x: 0, y: 0, z: -5 }),
+    ]);
+    const state = shot(stacked, ["p1", "primary"]);
+
+    expect(find(state, "ahead").health).toBeLessThan(MAX_HEALTH);
+    expect(find(state, "inside").health).toBe(MAX_HEALTH);
+  });
+
   it("reaches no further than the weapon does", () => {
     const apart = game([
       standing("p1", { x: 0, y: 0, z: 0 }),

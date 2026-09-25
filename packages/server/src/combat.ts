@@ -56,7 +56,11 @@ function traceShot(state: GameState, shooter: PlayerSimState, shot: Shot): Playe
     if (target.id === shooter.id || target.health === 0) continue;
 
     const distance = rayHitsAabb(origin, direction, playerBox(target.movement.position), range);
-    if (distance !== null && (nearest === null || distance < nearest.distance)) {
+    // Zero metres means the eye is inside that player's box. Nothing pushes two players
+    // apart in v1, so standing in each other is reachable play — and a hit at zero
+    // distance would mean whichever of them fired hit the other whatever they were
+    // looking at. Step apart to shoot.
+    if (distance !== null && distance > 0 && (nearest === null || distance < nearest.distance)) {
       nearest = { id: target.id, distance };
     }
   }
