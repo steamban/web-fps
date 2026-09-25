@@ -1,8 +1,8 @@
 import {
+  eyePosition,
   MAX_CATCHUP_MS,
   type MapData,
   type MovementState,
-  PLAYER_EYE_HEIGHT,
   spawnState,
   stepMovement,
 } from "@web-fps/shared";
@@ -49,11 +49,8 @@ export function startSandbox(canvas: HTMLCanvasElement, map: MapData): () => voi
       pending -= STEP_MS;
     }
 
-    view.camera.position.set(
-      state.position.x,
-      state.position.y + PLAYER_EYE_HEIGHT,
-      state.position.z,
-    );
+    const eye = eyePosition(state.position);
+    view.camera.position.set(eye.x, eye.y, eye.z);
     view.camera.rotation.set(look.pitch, look.yaw, 0);
     view.renderer.render(view.scene, view.camera);
   });

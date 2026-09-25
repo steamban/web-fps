@@ -1,6 +1,7 @@
-import { rampSurfaceHeight, SANDBOX_MAP } from "@web-fps/shared";
+import { aimDirection, rampSurfaceHeight, SANDBOX_MAP } from "@web-fps/shared";
+import { Euler, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
-import { buildScene, rampGeometry } from "./scene";
+import { buildScene, CAMERA_EULER_ORDER, rampGeometry } from "./scene";
 
 /**
  * The renderer is judged by playing it (PLAN.md M6), with one exception: a ramp you can see
@@ -48,5 +49,25 @@ describe("buildScene", () => {
     const meshes = scene.children.filter((child) => child.type === "Mesh");
     expect(meshes).toHaveLength(1 + SANDBOX_MAP.boxes.length + SANDBOX_MAP.ramps.length);
     expect(scene.children.some((child) => child.type === "GridHelper")).toBe(true);
+  });
+});
+
+describe("the camera's angles", () => {
+  it("points exactly where the server says the player is aiming", () => {
+    // The one equality combat rests on: the camera is aimed by `rotation.set(pitch, yaw, 0)`
+    // and the server raycasts along `aimDirection(yaw, pitch)`. Change the euler order and
+    // the two part company — shots land somewhere other than the crosshair, and a debug
+    // overlay drawn from either one would agree with itself and lie about the other.
+    for (let yaw = -Math.PI; yaw <= Math.PI; yaw += 0.41) {
+      for (let pitch = -Math.PI / 2; pitch <= Math.PI / 2; pitch += 0.23) {
+        const drawn = new Vector3(0, 0, -1).applyEuler(
+          new Euler(pitch, yaw, 0, CAMERA_EULER_ORDER),
+        );
+        const aimed = aimDirection(yaw, pitch);
+        expect(drawn.x).toBeCloseTo(aimed.x, 12);
+        expect(drawn.y).toBeCloseTo(aimed.y, 12);
+        expect(drawn.z).toBeCloseTo(aimed.z, 12);
+      }
+    }
   });
 });

@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { MapData } from "./map";
 import {
+  aimDirection,
+  eyePosition,
   GRAVITY,
   JUMP_SPEED,
   MOVE_SPEED,
   type MovementState,
+  PLAYER_EYE_HEIGHT,
   PLAYER_HALF_WIDTH,
   PLAYER_HEIGHT,
   playerBox,
@@ -234,5 +237,51 @@ describe("walls and ramps", () => {
     expect(up.position.y).toBeGreaterThan(1);
     expect(down.grounded).toBe(true);
     expect(down.position.y).toBeLessThan(up.position.y);
+  });
+});
+
+describe("aimDirection", () => {
+  it("is the flat forward this file documents when the look is level", () => {
+    for (const yaw of [0, 0.7, -2.1, Math.PI]) {
+      const aim = aimDirection(yaw, 0);
+      expect(aim.x).toBeCloseTo(-Math.sin(yaw), 12);
+      expect(aim.y).toBeCloseTo(0, 12);
+      expect(aim.z).toBeCloseTo(-Math.cos(yaw), 12);
+    }
+  });
+
+  it("looks straight up and straight down at the pitch the protocol allows", () => {
+    expect(aimDirection(1.2, Math.PI / 2).y).toBeCloseTo(1, 12);
+    expect(aimDirection(1.2, -Math.PI / 2).y).toBeCloseTo(-1, 12);
+  });
+
+  it("is a unit vector at every angle, so a distance along it is metres", () => {
+    for (let yaw = -Math.PI; yaw <= Math.PI; yaw += 0.37) {
+      for (let pitch = -Math.PI / 2; pitch <= Math.PI / 2; pitch += 0.19) {
+        const aim = aimDirection(yaw, pitch);
+        expect(Math.hypot(aim.x, aim.y, aim.z)).toBeCloseTo(1, 12);
+      }
+    }
+  });
+
+  it("survives a yaw that arrived over a socket", () => {
+    // Nothing wraps it first: sine and cosine are bounded whatever they are handed, and
+    // the angle is never stored or differenced here.
+    const aim = aimDirection(1e308, 0.3);
+    expect(Number.isFinite(aim.x) && Number.isFinite(aim.y) && Number.isFinite(aim.z)).toBe(true);
+  });
+});
+
+describe("eyePosition", () => {
+  it("is where the camera sits, and is inside the player's own hitbox", () => {
+    // Which is why a shooter has to be left out of their own shot by id — a ray from here
+    // enters their own box at zero distance, and distance alone would make it a suicide.
+    const feet = { x: 3, y: 1, z: -2 };
+    const eye = eyePosition(feet);
+    const box = playerBox(feet);
+
+    expect(eye).toEqual({ x: 3, y: 1 + PLAYER_EYE_HEIGHT, z: -2 });
+    expect(eye.y).toBeGreaterThan(box.min.y);
+    expect(eye.y).toBeLessThan(box.max.y);
   });
 });

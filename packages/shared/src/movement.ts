@@ -70,6 +70,24 @@ export function playerBox(position: Vec3): Aabb {
   };
 }
 
+/** Where the camera sits, and where a shot leaves from — one definition of both. */
+export function eyePosition(position: Vec3): Vec3 {
+  return { x: position.x, y: position.y + PLAYER_EYE_HEIGHT, z: position.z };
+}
+
+/**
+ * The unit vector a player is looking along: the flat convention above, extended to pitch.
+ *
+ * At pitch 0 it collapses onto the documented forward, and it is exactly where the client's
+ * camera points — `scene.ts` sets the euler order that keeps that true, and a test there
+ * holds the two together. The server raycasts a shot along this, so a sign flipped here is
+ * a shot that goes somewhere other than the crosshair.
+ */
+export function aimDirection(yaw: number, pitch: number): Vec3 {
+  const flat = Math.cos(pitch);
+  return { x: -Math.sin(yaw) * flat, y: Math.sin(pitch), z: -Math.cos(yaw) * flat };
+}
+
 export function spawnState(spawn: SpawnPoint): MovementState {
   return {
     position: { ...spawn.position },

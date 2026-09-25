@@ -133,6 +133,13 @@ export function buildScene(map: MapData): Scene {
  *  match have to look through the same one or the tuning does not transfer. */
 const FIELD_OF_VIEW = 80;
 
+/**
+ * Yaw before pitch, so looking up does not roll the horizon — and, less visibly, so the
+ * camera points exactly along `aimDirection`, which is what the server raycasts a shot
+ * along. Exported because that equality is an invariant with a test, not a detail.
+ */
+export const CAMERA_EULER_ORDER = "YXZ";
+
 export interface View {
   readonly renderer: WebGLRenderer;
   readonly scene: Scene;
@@ -152,8 +159,7 @@ export function createView(canvas: HTMLCanvasElement, map: MapData): View {
 
   const scene = buildScene(map);
   const camera = new PerspectiveCamera(FIELD_OF_VIEW, 1, 0.1, 200);
-  // Yaw before pitch, so looking up does not roll the horizon.
-  camera.rotation.order = "YXZ";
+  camera.rotation.order = CAMERA_EULER_ORDER;
 
   const resize = (): void => {
     const { innerWidth, innerHeight } = window;

@@ -1,9 +1,9 @@
 import {
   type ClientMessage,
+  eyePosition,
   MAX_CATCHUP_MS,
   type MapData,
   type MovementState,
-  PLAYER_EYE_HEIGHT,
   PLAYER_HALF_WIDTH,
   PLAYER_HEIGHT,
   type PlayerId,
@@ -153,8 +153,8 @@ export function startGame(options: GameOptions): Game {
       accumulated = 0;
     }
 
-    const eye = lerpVec3(stepStart.position, predicted.position, accumulated / stepMs);
-    view.camera.position.set(eye.x, eye.y + PLAYER_EYE_HEIGHT, eye.z);
+    const eye = eyePosition(lerpVec3(stepStart.position, predicted.position, accumulated / stepMs));
+    view.camera.position.set(eye.x, eye.y, eye.z);
     // Straight off the mouse, every frame. Aim is where lag is felt first.
     view.camera.rotation.set(look.pitch, look.yaw, 0);
 
