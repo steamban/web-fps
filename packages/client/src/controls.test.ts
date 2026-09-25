@@ -1,6 +1,13 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vitest";
-import { applyLook, type Controls, createControls, keyField, MOUSE_SENSITIVITY } from "./controls";
+import {
+  applyLook,
+  type Controls,
+  createControls,
+  keyField,
+  MOUSE_SENSITIVITY,
+  slotKey,
+} from "./controls";
 
 /**
  * Keyboard and mouse handling for the sandbox. The angle maths is pure and covered
@@ -28,6 +35,13 @@ const release = (code: string): void => {
 };
 const moveMouse = (movementX: number, movementY: number): void => {
   window.dispatchEvent(new MouseEvent("mousemove", { movementX, movementY }));
+};
+
+const pressMouse = (on: EventTarget, button = 0): void => {
+  on.dispatchEvent(new MouseEvent("mousedown", { button, bubbles: true }));
+};
+const releaseMouse = (button = 0): void => {
+  window.dispatchEvent(new MouseEvent("mouseup", { button }));
 };
 
 afterEach(() => {
@@ -80,6 +94,16 @@ describe("keyField", () => {
   it("ignores everything else", () => {
     expect(keyField("KeyQ")).toBeNull();
     expect(keyField("F5")).toBeNull();
+  });
+});
+
+describe("slotKey", () => {
+  it("maps the weapon keys by physical position, like the movement keys", () => {
+    expect(slotKey("Digit1")).toBe("primary");
+    expect(slotKey("Digit2")).toBe("secondary");
+    expect(slotKey("Digit3")).toBe("melee");
+    expect(slotKey("Digit4")).toBeNull();
+    expect(slotKey("KeyW")).toBeNull();
   });
 });
 
@@ -165,6 +189,78 @@ describe("createControls", () => {
     moveMouse(50, 0);
     expect(controls.keys().forward).toBe(false);
     expect(controls.look().yaw).toBe(0);
+  });
+
+  it("does not fire the click that captures the mouse", () => {
+    // The first click on the view is how pointer lock is taken. Firing on it would mean a
+    // round spent every time a player comes back from the escape key.
+    const target = canvas();
+    controls = createControls(target, 0);
+
+    pressMouse(target);
+    expect(controls.fire()).toBeNull();
+  });
+
+  it("fires for as long as the trigger is held", () => {
+    const target = canvas();
+    controls = createControls(target, 0);
+    lockTo(target);
+
+    pressMouse(target);
+    expect(controls.fire()).toBe("primary");
+    // Automatic: the server's cooldown decides the rate, not the player's clicking.
+    expect(controls.fire()).toBe("primary");
+    releaseMouse();
+    expect(controls.fire()).toBeNull();
+  });
+
+  it("reports a trigger tapped and released between two samples, once", () => {
+    // A click inside one 50 ms step is invisible in the held state — the same reason jump
+    // is latched — and a shot swallowed is worse than a jump swallowed.
+    const target = canvas();
+    controls = createControls(target, 0);
+    lockTo(target);
+
+    pressMouse(target);
+    releaseMouse();
+    expect(controls.fire()).toBe("primary");
+    expect(controls.fire()).toBeNull();
+  });
+
+  it("ignores a click that is not the trigger, and one that is not on the view", () => {
+    // The host's Pause and Close sit over the game view; a window-level trigger would fire
+    // a round every time the host reached for them.
+    const target = canvas();
+    controls = createControls(target, 0);
+    lockTo(target);
+
+    pressMouse(target, 2);
+    expect(controls.fire()).toBeNull();
+    pressMouse(document.body);
+    expect(controls.fire()).toBeNull();
+  });
+
+  it("releases the trigger when the window loses focus", () => {
+    const target = canvas();
+    controls = createControls(target, 0);
+    lockTo(target);
+
+    pressMouse(target);
+    window.dispatchEvent(new Event("blur"));
+    expect(controls.fire()).toBeNull();
+  });
+
+  it("fires whichever weapon was last selected", () => {
+    const target = canvas();
+    controls = createControls(target, 0);
+    lockTo(target);
+
+    press("Digit3");
+    pressMouse(target);
+    expect(controls.fire()).toBe("melee");
+
+    press("Digit2");
+    expect(controls.fire()).toBe("secondary");
   });
 
   it("hands out a snapshot a caller cannot write back through", () => {

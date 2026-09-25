@@ -1,4 +1,4 @@
-import { type InputKeys, wrapAngle } from "@web-fps/shared";
+import { type InputKeys, type WeaponSlot, wrapAngle } from "@web-fps/shared";
 
 /**
  * Keyboard and mouse for a player standing in the world: WASD by physical key position,
@@ -43,6 +43,19 @@ export function keyField(code: string): keyof InputKeys | null {
   return KEY_FIELDS[code] ?? null;
 }
 
+/** Weapons are selected the same way: by position, so the digit row means the same thing
+ *  on every layout. Which weapon is carried is purely local — it rides on each input
+ *  frame, so the server needs no equip message and no equipped state to keep in step. */
+const SLOT_KEYS: Readonly<Record<string, WeaponSlot>> = {
+  Digit1: "primary",
+  Digit2: "secondary",
+  Digit3: "melee",
+};
+
+export function slotKey(code: string): WeaponSlot | null {
+  return SLOT_KEYS[code] ?? null;
+}
+
 export interface Controls {
   /**
    * What is held right now, plus a jump that was pressed and released since the last
@@ -51,6 +64,12 @@ export interface Controls {
    */
   keys(): InputKeys;
   look(): Look;
+  /**
+   * The weapon this step fired, or null if the trigger was not pulled. Held or tapped, and
+   * consumed by the read, exactly like the jump above — a click inside one 50 ms step is
+   * invisible in the held state, and a shot swallowed is worse than a jump swallowed.
+   */
+  fire(): WeaponSlot | null;
   dispose(): void;
 }
 
@@ -73,6 +92,10 @@ export function createControls(canvas: HTMLElement, startYaw: number): Controls 
    */
   let tappedJump = false;
 
+  let slot: WeaponSlot = "primary";
+  let triggerHeld = false;
+  let tappedTrigger = false;
+
   const setKey = (event: KeyboardEvent, down: boolean): void => {
     const field = keyField(event.code);
     if (field === null) return;
@@ -82,7 +105,14 @@ export function createControls(canvas: HTMLElement, startYaw: number): Controls 
     event.preventDefault();
   };
 
-  const onKeyDown = (event: KeyboardEvent): void => setKey(event, true);
+  const onKeyDown = (event: KeyboardEvent): void => {
+    const weapon = slotKey(event.code);
+    if (weapon !== null) {
+      slot = weapon;
+      return;
+    }
+    setKey(event, true);
+  };
   const onKeyUp = (event: KeyboardEvent): void => setKey(event, false);
 
   // A key let go while the window is in the background never reports its keyup, so coming
@@ -90,6 +120,8 @@ export function createControls(canvas: HTMLElement, startYaw: number): Controls 
   const onBlur = (): void => {
     held = { ...NOTHING_HELD };
     tappedJump = false;
+    triggerHeld = false;
+    tappedTrigger = false;
   };
 
   const onMouseMove = (event: MouseEvent): void => {
@@ -101,11 +133,30 @@ export function createControls(canvas: HTMLElement, startYaw: number): Controls 
     if (document.pointerLockElement !== canvas) void canvas.requestPointerLock();
   };
 
+  /**
+   * On the canvas, and only while the mouse is captured: the click that takes pointer lock
+   * must not also discharge a round, and the host's Pause and Close sit over the view — a
+   * window-level trigger would fire every time the host reached for them.
+   */
+  const onMouseDown = (event: MouseEvent): void => {
+    if (document.pointerLockElement !== canvas || event.button !== 0) return;
+    triggerHeld = true;
+    tappedTrigger = true;
+  };
+
+  // Released from the window, though: a mouseup the canvas never sees would leave the
+  // trigger held down for the rest of the match.
+  const onMouseUp = (event: MouseEvent): void => {
+    if (event.button === 0) triggerHeld = false;
+  };
+
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
   window.addEventListener("blur", onBlur);
   window.addEventListener("mousemove", onMouseMove);
+  window.addEventListener("mouseup", onMouseUp);
   canvas.addEventListener("click", onClick);
+  canvas.addEventListener("mousedown", onMouseDown);
 
   return {
     keys: () => {
@@ -114,12 +165,19 @@ export function createControls(canvas: HTMLElement, startYaw: number): Controls 
       return sample;
     },
     look: () => look,
+    fire: () => {
+      const pulled = triggerHeld || tappedTrigger;
+      tappedTrigger = false;
+      return pulled ? slot : null;
+    },
     dispose(): void {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onBlur);
       window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
       canvas.removeEventListener("click", onClick);
+      canvas.removeEventListener("mousedown", onMouseDown);
     },
   };
 }

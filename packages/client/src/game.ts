@@ -94,8 +94,12 @@ export function startGame(options: GameOptions): Game {
     // Sampled per step rather than per frame: reading the keys consumes a tapped jump, so
     // reusing one sample across two steps would turn one tap into two jumps.
     const keys = controls.keys();
+    // Sampled here for the same reason, and only here: the read consumes a tapped trigger,
+    // so a shot belongs to exactly one frame. `pending` never carries it — a replayed
+    // frame is a movement replay, and must not fire a second round.
+    const fire = controls.fire();
     seq += 1;
-    send({ type: "input", seq, keys, yaw, pitch, fire: null });
+    send({ type: "input", seq, keys, yaw, pitch, fire });
     pending = [...pending, { seq, keys, yaw }];
 
     stepStart = predicted;
