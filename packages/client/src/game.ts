@@ -157,7 +157,11 @@ export function startGame(options: GameOptions): Game {
         accumulated -= stepMs;
       }
     } else {
-      // Nothing to catch up on when this ends: the server did not step either.
+      // Nothing to catch up on when this ends: the server did not step either. The latches
+      // go with it — a jump or a trigger tapped while dead or paused is consumed by
+      // nothing otherwise, and would go off on the first step afterwards.
+      controls.keys();
+      controls.fire();
       accumulated = 0;
     }
 
