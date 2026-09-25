@@ -4,6 +4,7 @@ import {
   type ClientMessage,
   decodeServerMessage,
   encodeMessage,
+  LOADOUT,
   PROTOCOL_VERSION,
   type ServerMessage,
   WS_PATH,
@@ -392,6 +393,42 @@ describe("a running match", () => {
       "a snapshot after the resume",
     );
     expect(resumed.players[0]?.position).toEqual(atPause?.players[0]?.position);
+  });
+
+  it("resolves a shot taken over the socket against the player it was aimed at", async () => {
+    // The whole path end to end: a trigger on an input frame, the authoritative hit, and
+    // the health every client learns about from the next snapshot. Spawn 0 and spawn 1 sit
+    // 36 m apart along a clear lane; yaw -pi/2 looks straight down it.
+    const url = await startServer();
+    const host = await join(url, "arvind");
+    const guest = await join(url, "bob");
+    await lobbyState(guest, (s) => s.players.length === 2);
+    host.send({ type: "start" });
+
+    const started = await waitFor(() => host.inbox.find((m) => m.type === "matchStart"), "start");
+    const selfId = (await lobbyState(host)).selfId;
+    expect(started.spawn.position.x).toBeLessThan(0);
+
+    host.send({
+      type: "input",
+      seq: 1,
+      keys: { forward: false, back: false, left: false, right: false, jump: false },
+      yaw: -Math.PI / 2,
+      pitch: 0,
+      fire: "primary",
+    });
+
+    const hit = await waitFor(
+      () => snapshots(host).find((s) => s.players.some((p) => p.health < 100)),
+      "a snapshot showing the hit",
+    );
+    const shooter = hit.players.find((player) => player.id === selfId);
+    const target = hit.players.find((player) => player.id !== selfId);
+
+    expect(target?.health).toBe(100 - LOADOUT.primary.damage);
+    expect(target?.alive).toBe(true);
+    // The client never decides a kill, and never shoots itself either.
+    expect(shooter?.health).toBe(100);
   });
 
   it("stops simulating a player who leaves and keeps the match running for the rest", async () => {

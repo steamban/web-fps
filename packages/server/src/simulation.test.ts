@@ -1,4 +1,11 @@
-import { MAX_HEALTH, MOVE_SPEED, type PlayerId, SANDBOX_MAP, stepMovement } from "@web-fps/shared";
+import {
+  LOADOUT,
+  MAX_HEALTH,
+  MOVE_SPEED,
+  type PlayerId,
+  SANDBOX_MAP,
+  stepMovement,
+} from "@web-fps/shared";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "./config";
 import {
@@ -199,6 +206,90 @@ describe("simulate", () => {
 
     expect(Number.isFinite(yaw)).toBe(true);
     expect(Math.abs(yaw)).toBeLessThanOrEqual(Math.PI);
+  });
+});
+
+describe("a shot taken on an input frame", () => {
+  /**
+   * Two players in the clear lane along the map's west edge, five metres apart, the first
+   * looking down it at the second. Yaw 0 faces -z.
+   */
+  const lane = (shooterX = -20, targetX = -20): GameState => {
+    const base = gameOf("p1", "p2");
+    return {
+      ...base,
+      players: base.players.map((player, index) => ({
+        ...player,
+        yaw: 0,
+        movement: {
+          position: { x: index === 0 ? shooterX : targetX, y: 0, z: index === 0 ? 0 : -5 },
+          velocity: { x: 0, y: 0, z: 0 },
+          grounded: true,
+        },
+      })),
+    };
+  };
+
+  it("damages the player it is aimed at and nobody else", () => {
+    const state = simulate(lane(), [input("p1", 1, { keys: RELEASED, fire: "primary" })], DT);
+
+    expect(find(state, "p2").health).toBe(MAX_HEALTH - LOADOUT.primary.damage);
+    expect(find(state, "p1").health).toBe(MAX_HEALTH);
+  });
+
+  it("resolves the shot against where the tick left everyone, not where it found them", () => {
+    // The target starts just clear of the line and steps onto it inside the same tick. A
+    // shot resolved before the movement would be a systematic tick of lead on every
+    // moving target — over half a player's width at this speed and tick rate.
+    const stepping = [
+      input("p1", 1, { keys: RELEASED, fire: "primary" }),
+      input("p2", 1, { keys: { ...RELEASED, left: true } }),
+    ];
+
+    expect(find(simulate(lane(-20, -19.4), stepping, DT), "p2").health).toBeLessThan(MAX_HEALTH);
+    // Standing still, the same shot goes past them.
+    const standing = [input("p1", 1, { keys: RELEASED, fire: "primary" })];
+    expect(find(simulate(lane(-20, -19.4), standing, DT), "p2").health).toBe(MAX_HEALTH);
+  });
+
+  it("fires once a tick however many frames carry a trigger, and the last one wins", () => {
+    // Both frames are simulated — that is what keeps prediction honest — but a tick is one
+    // shot, so the weapon named by the last of them is the one that goes off. Melee cannot
+    // reach five metres, so this is a miss where the first frame alone would have hit.
+    const state = simulate(
+      lane(),
+      [
+        input("p1", 1, { keys: RELEASED, fire: "primary" }),
+        input("p1", 2, { keys: RELEASED, fire: "melee" }),
+      ],
+      DT,
+    );
+    expect(find(state, "p2").health).toBe(MAX_HEALTH);
+  });
+
+  it("does not fire on a frame it has already simulated", () => {
+    // A replayed frame takes its shot with it, so a resend cannot shoot twice.
+    const once = simulate(lane(), [input("p1", 1, { keys: RELEASED, fire: "primary" })], DT);
+    const again = simulate(once, [input("p1", 1, { keys: RELEASED, fire: "primary" })], DT);
+    expect(find(again, "p2").health).toBe(find(once, "p2").health);
+  });
+
+  it("is not taken by a player who is dead", () => {
+    const state = simulate(
+      kill(lane(), "p1"),
+      [input("p1", 1, { keys: RELEASED, fire: "primary" })],
+      DT,
+    );
+    expect(find(state, "p2").health).toBe(MAX_HEALTH);
+  });
+
+  it("replays to the same state, shot and all", () => {
+    const start = lane();
+    const inputs = [input("p1", 1, { keys: RELEASED, fire: "primary" })];
+    const before = structuredClone(start);
+
+    expect(simulate(start, inputs, DT)).toEqual(simulate(start, inputs, DT));
+    expect(start).toEqual(before);
   });
 });
 

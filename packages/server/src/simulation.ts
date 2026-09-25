@@ -11,6 +11,7 @@ import {
   type WeaponSlot,
   wrapAngle,
 } from "@web-fps/shared";
+import { resolveShots } from "./combat";
 import type { Config } from "./config";
 
 /**
@@ -100,13 +101,22 @@ export function createGame(map: MapData, playerIds: readonly PlayerId[]): GameSt
  * as its own full step, so the server walks exactly the sequence the client predicted —
  * taking only the newest would leave it permanently a step behind an input the client has
  * already dropped at ack, which is the rubber-band this whole arrangement exists to avoid.
+ *
+ * Movement first, then the shots taken on those frames: a shot leaves from where this tick
+ * left the shooter and arrives where it left everyone else. Resolving it inside the fold
+ * would aim a tick behind — over half a player's width at the default speed — and could
+ * not write damage to anybody else in the first place.
  */
 export function simulate(
   state: GameState,
   inputs: readonly PlayerInput[],
   dtMs: number,
 ): GameState {
-  return {
+  // One shot per player per tick: no weapon's cooldown is shorter than a tick, so a burst
+  // of frames could only ever land one of them anyway, and the last frame names it.
+  const requested = new Map<PlayerId, WeaponSlot>();
+
+  const moved: GameState = {
     ...state,
     tick: state.tick + 1,
     players: state.players.map((player) => {
@@ -131,6 +141,8 @@ export function simulate(
 
         // Yaw is unbounded on the wire; folded here, at the boundary, so that no consumer
         // downstream has to survive a value that overflows the difference between two.
+        if (input.fire !== null) requested.set(player.id, input.fire);
+
         const yaw = wrapAngle(input.yaw);
         next = {
           ...next,
@@ -151,6 +163,8 @@ export function simulate(
       return next;
     }),
   };
+
+  return resolveShots(moved, requested, dtMs);
 }
 
 /**
