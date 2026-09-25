@@ -1,4 +1,4 @@
-import type { InputKeys } from "@web-fps/shared";
+import { type InputKeys, wrapAngle } from "@web-fps/shared";
 
 /**
  * Keyboard and mouse for a player standing in the world: WASD by physical key position,
@@ -16,20 +16,16 @@ export interface Look {
 /** Radians of turn per pixel of mouse travel. */
 export const MOUSE_SENSITIVITY = 0.0022;
 
-const TAU = Math.PI * 2;
 /** Straight up and straight down, which is also the bound the wire protocol enforces. */
 const MAX_PITCH = Math.PI / 2;
-
-/** Fold an angle back into [-pi, pi), so a long session cannot drift yaw into a range
- *  where float precision starts to show. */
-const wrap = (angle: number): number => angle - TAU * Math.floor((angle + Math.PI) / TAU);
 
 const clamp = (value: number, low: number, high: number): number =>
   Math.min(Math.max(value, low), high);
 
 export function applyLook(look: Look, movementX: number, movementY: number): Look {
   return {
-    yaw: wrap(look.yaw - movementX * MOUSE_SENSITIVITY),
+    // Folded every step, so a long session cannot drift yaw somewhere precision shows.
+    yaw: wrapAngle(look.yaw - movementX * MOUSE_SENSITIVITY),
     pitch: clamp(look.pitch - movementY * MOUSE_SENSITIVITY, -MAX_PITCH, MAX_PITCH),
   };
 }
