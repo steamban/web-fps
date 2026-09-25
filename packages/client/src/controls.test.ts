@@ -250,6 +250,24 @@ describe("createControls", () => {
     expect(controls.fire()).toBeNull();
   });
 
+  it("stops firing when the mouse is handed back in the middle of a hold", () => {
+    // Esc releases pointer lock without ever sending a mouseup, so a held trigger would
+    // keep the gun going while the player clicks around the page — including on the host's
+    // Pause and Close.
+    const target = canvas();
+    controls = createControls(target, 0);
+    lockTo(target);
+
+    pressMouse(target);
+    expect(controls.fire()).toBe("primary");
+
+    lockTo(null);
+    expect(controls.fire()).toBeNull();
+    // And it does not pick up again when the mouse is recaptured without a fresh click.
+    lockTo(target);
+    expect(controls.fire()).toBeNull();
+  });
+
   it("fires whichever weapon was last selected", () => {
     const target = canvas();
     controls = createControls(target, 0);

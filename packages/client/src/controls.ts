@@ -166,6 +166,14 @@ export function createControls(canvas: HTMLElement, startYaw: number): Controls 
     },
     look: () => look,
     fire: () => {
+      // The mouse can be handed back in the middle of a hold — Esc releases pointer lock
+      // and no mouseup ever arrives — so the capture is rechecked here rather than trusted
+      // from the press. Recapturing takes a fresh click, like the first one did.
+      if (document.pointerLockElement !== canvas) {
+        triggerHeld = false;
+        tappedTrigger = false;
+        return null;
+      }
       const pulled = triggerHeld || tappedTrigger;
       tappedTrigger = false;
       return pulled ? slot : null;
