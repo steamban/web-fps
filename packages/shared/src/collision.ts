@@ -237,3 +237,108 @@ export function resolveMove(
   const probe = sweep(map, swept.box, { x: 0, y: -options.stepHeight, z: 0 }, options.stepHeight);
   return probe.grounded ? { ...probe, hitCeiling: swept.hitCeiling } : swept;
 }
+
+/**
+ * The same geometry read the other way round: not where a moving box comes to rest, but
+ * what the first solid along a ray is. M4's hitscan is resolved with these — a shot is
+ * blocked by exactly the surfaces a player can stand on and see.
+ *
+ * `direction` is a unit vector, so every distance below is in metres and comparable
+ * between one call and the next.
+ */
+
+/** The stretch of the ray that lies inside `box`, or null if none of it does. */
+function slabInterval(
+  origin: Vec3,
+  direction: Vec3,
+  box: Aabb,
+  maxDistance: number,
+): [number, number] | null {
+  let enter = 0;
+  let exit = maxDistance;
+
+  for (const axis of ["x", "y", "z"] as const) {
+    const along = direction[axis];
+    // Parallel to this pair of faces: a containment test, and never a division by zero —
+    // which is what keeps an infinity out of the arithmetic and a NaN out of the answer.
+    if (along === 0) {
+      if (origin[axis] < box.min[axis] || origin[axis] > box.max[axis]) return null;
+      continue;
+    }
+    const low = (box.min[axis] - origin[axis]) / along;
+    const high = (box.max[axis] - origin[axis]) / along;
+    enter = Math.max(enter, Math.min(low, high));
+    exit = Math.min(exit, Math.max(low, high));
+    if (enter > exit) return null;
+  }
+  return [enter, exit];
+}
+
+/**
+ * Distance to where the ray enters `box`, or null if it never does within `maxDistance`.
+ *
+ * Starting the interval at 0 rather than -Infinity is what makes an origin *inside* the
+ * box report 0 and a box entirely behind the origin report nothing. The first is why a
+ * shooter has to be excluded from their own shot: their eye is inside their own hitbox.
+ */
+export function rayHitsAabb(
+  origin: Vec3,
+  direction: Vec3,
+  box: Aabb,
+  maxDistance: number,
+): number | null {
+  return slabInterval(origin, direction, box, maxDistance)?.[0] ?? null;
+}
+
+/**
+ * A ramp is a wedge — its box below its sloped surface — and a ray has to see the wedge,
+ * or there would be an invisible wall standing over the low end of every ramp.
+ *
+ * Inside the footprint `rampSurfaceHeight`'s clamp does nothing, so the ray's height above
+ * the surface is affine in the distance travelled and the two ends of the box interval
+ * decide the whole of it: under the slope on entry means the wedge starts there, above it
+ * at both ends means the shot passes over, and one of each is solved for exactly.
+ */
+function rayHitsRamp(
+  ramp: Ramp,
+  origin: Vec3,
+  direction: Vec3,
+  maxDistance: number,
+): number | null {
+  const span = slabInterval(origin, direction, ramp.box, maxDistance);
+  if (!span) return null;
+
+  const [enter, exit] = span;
+  const above = (distance: number): number =>
+    origin.y +
+    distance * direction.y -
+    rampSurfaceHeight(ramp, origin.x + distance * direction.x, origin.z + distance * direction.z);
+
+  const atEnter = above(enter);
+  if (atEnter <= 0) return enter;
+  const atExit = above(exit);
+  if (atExit > 0) return null;
+  return enter + ((exit - enter) * atEnter) / (atEnter - atExit);
+}
+
+/**
+ * Distance to the first solid in the map along the ray, or null within `maxDistance`.
+ *
+ * `bounds` is deliberately not tested: it is the arena shell, it is convex, and both ends
+ * of any shot are inside it, so no shot can cross it.
+ */
+export function rayHitsMap(
+  map: MapData,
+  origin: Vec3,
+  direction: Vec3,
+  maxDistance: number,
+): number | null {
+  let nearest: number | null = null;
+  const closer = (hit: number | null): void => {
+    if (hit !== null && (nearest === null || hit < nearest)) nearest = hit;
+  };
+
+  for (const solid of map.boxes) closer(rayHitsAabb(origin, direction, solid, maxDistance));
+  for (const ramp of map.ramps) closer(rayHitsRamp(ramp, origin, direction, maxDistance));
+  return nearest;
+}

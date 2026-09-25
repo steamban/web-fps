@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { aabbOverlaps, rampSurfaceHeight, rampSurfaceUnder, resolveMove } from "./collision";
+import {
+  aabbOverlaps,
+  rampSurfaceHeight,
+  rampSurfaceUnder,
+  rayHitsAabb,
+  rayHitsMap,
+  resolveMove,
+} from "./collision";
 import type { Aabb, Vec3 } from "./geometry";
 import type { MapData, Ramp } from "./map";
 
@@ -298,5 +305,107 @@ describe("resolveMove at speed", () => {
     });
     const result = move(thin, player(0, 0, 0), { x: 6 });
     expect(feet(result.box).x).toBeCloseTo(2 - HALF_WIDTH);
+  });
+});
+
+/**
+ * Rays. The same geometry from the other end: not "where does this box come to rest" but
+ * "what is the first thing in this direction" — which is how M4 resolves a shot.
+ */
+
+const EAST: Vec3 = { x: 1, y: 0, z: 0 };
+const DOWN: Vec3 = { x: 0, y: -1, z: 0 };
+
+/** Rises 3 m over 6 m of +x, so its surface is exactly y = x/2. */
+const wedge: Ramp = {
+  box: { min: { x: 0, y: 0, z: -2 }, max: { x: 6, y: 3, z: 2 } },
+  ascend: "+x",
+};
+
+describe("rayHitsAabb", () => {
+  const box: Aabb = { min: { x: 2, y: 0, z: -1 }, max: { x: 4, y: 2, z: 1 } };
+
+  it("reports how far along the ray the box starts", () => {
+    expect(rayHitsAabb({ x: 0, y: 1, z: 0 }, EAST, box, 10)).toBeCloseTo(2);
+  });
+
+  it("misses a box the ray goes past", () => {
+    expect(rayHitsAabb({ x: 0, y: 1, z: 3 }, EAST, box, 10)).toBeNull();
+  });
+
+  it("misses a box behind the origin", () => {
+    expect(rayHitsAabb({ x: 6, y: 1, z: 0 }, EAST, box, 10)).toBeNull();
+  });
+
+  it("never reaches further than the range it is given", () => {
+    expect(rayHitsAabb({ x: 0, y: 1, z: 0 }, EAST, box, 1.9)).toBeNull();
+    expect(rayHitsAabb({ x: 0, y: 1, z: 0 }, EAST, box, 2.1)).toBeCloseTo(2);
+  });
+
+  it("reports zero from an origin already inside the box", () => {
+    // Which is exactly why a shooter has to be excluded from their own shot by id: their
+    // eye is 1.65 m up inside their own 1.8 m box, so distance alone would make every
+    // trigger pull a suicide.
+    expect(rayHitsAabb({ x: 3, y: 1, z: 0 }, EAST, box, 10)).toBe(0);
+  });
+
+  it("treats a slab the ray runs parallel to as a containment test", () => {
+    // No component of the direction may be divided by zero: inside the slab the ray can
+    // still hit, outside it never can, and neither answer may come back NaN.
+    expect(rayHitsAabb({ x: 0, y: 1, z: 0 }, { x: 1, y: 0, z: 0 }, box, 10)).toBeCloseTo(2);
+    expect(rayHitsAabb({ x: 0, y: 3, z: 0 }, { x: 1, y: 0, z: 0 }, box, 10)).toBeNull();
+    expect(rayHitsAabb({ x: 0, y: 1, z: 0 }, { x: 1, y: -0, z: -0 }, box, 10)).toBeCloseTo(2);
+  });
+});
+
+describe("rayHitsMap", () => {
+  it("finds nothing down an empty lane", () => {
+    expect(rayHitsMap(arena(), { x: 0, y: 1, z: 0 }, EAST, 100)).toBeNull();
+  });
+
+  it("ignores the arena shell, which is the movement clamp and not something to shoot", () => {
+    // Both the shooter and the target are inside a convex shell, so a shot between them
+    // can never cross it — and a wall the map does not list is a wall nobody can see.
+    expect(rayHitsMap(arena(), { x: 0, y: 1, z: 0 }, EAST, 1000)).toBeNull();
+  });
+
+  it("stops at the nearest of several solids", () => {
+    const map = arena({
+      boxes: [
+        { min: { x: 5, y: 0, z: -1 }, max: { x: 6, y: 2, z: 1 } },
+        { min: { x: 2, y: 0, z: -1 }, max: { x: 3, y: 2, z: 1 } },
+      ],
+    });
+    expect(rayHitsMap(map, { x: 0, y: 1, z: 0 }, EAST, 100)).toBeCloseTo(2);
+  });
+
+  it("blocks a level shot where the slope rises to meet it", () => {
+    // Eye height down the middle of the ramp: the surface reaches 1.65 m at x = 3.3.
+    const map = arena({ ramps: [wedge] });
+    expect(rayHitsMap(map, { x: -2, y: 1.65, z: 0 }, EAST, 100)).toBeCloseTo(5.3);
+    expect(rayHitsMap(map, { x: -2, y: 0.2, z: 0 }, EAST, 100)).toBeCloseTo(2.4);
+  });
+
+  it("lets a shot pass over a slope it clears", () => {
+    // A ramp is a wedge, not the box it is described by: over the low end there is nothing
+    // there. Shooting at the box would mean an invisible wall above the slope.
+    const map = arena({ ramps: [wedge] });
+    expect(rayHitsMap(map, { x: -2, y: 3.5, z: 0 }, EAST, 100)).toBeNull();
+    expect(rayHitsMap(map, { x: -2, y: 1, z: 5 }, EAST, 100)).toBeNull();
+  });
+
+  it("stops on the tall face a ramp is entered from above", () => {
+    const map = arena({ ramps: [wedge] });
+    expect(rayHitsMap(map, { x: 10, y: 1.65, z: 0 }, { x: -1, y: 0, z: 0 }, 100)).toBeCloseTo(4);
+  });
+
+  it("stops on the slope itself, shot from above", () => {
+    const map = arena({ ramps: [wedge] });
+    expect(rayHitsMap(map, { x: 3, y: 5, z: 0 }, DOWN, 100)).toBeCloseTo(3.5);
+  });
+
+  it("reports zero from inside a wedge", () => {
+    const map = arena({ ramps: [wedge] });
+    expect(rayHitsMap(map, { x: 5, y: 0.1, z: 0 }, EAST, 100)).toBe(0);
   });
 });
