@@ -11,7 +11,9 @@ import {
   HemisphereLight,
   Mesh,
   MeshLambertMaterial,
+  PerspectiveCamera,
   Scene,
+  WebGLRenderer,
 } from "three";
 
 /**
@@ -125,4 +127,51 @@ export function buildScene(map: MapData): Scene {
   scene.add(sun);
 
   return scene;
+}
+
+/** Vertical field of view. The movement was tuned through this lens, so the sandbox and a
+ *  match have to look through the same one or the tuning does not transfer. */
+const FIELD_OF_VIEW = 80;
+
+export interface View {
+  readonly renderer: WebGLRenderer;
+  readonly scene: Scene;
+  readonly camera: PerspectiveCamera;
+  dispose(): void;
+}
+
+/**
+ * The rig everything is drawn through: one renderer on the page's canvas, a camera at the
+ * player's eye, and a resize keeping the two agreed. Shared by the sandbox and a match
+ * rather than written twice, so the view they tune in cannot drift from the view they play
+ * in. Positioning and aiming the camera is the caller's job.
+ */
+export function createView(canvas: HTMLCanvasElement, map: MapData): View {
+  const renderer = new WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+  const scene = buildScene(map);
+  const camera = new PerspectiveCamera(FIELD_OF_VIEW, 1, 0.1, 200);
+  // Yaw before pitch, so looking up does not roll the horizon.
+  camera.rotation.order = "YXZ";
+
+  const resize = (): void => {
+    const { innerWidth, innerHeight } = window;
+    renderer.setSize(innerWidth, innerHeight, false);
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+  };
+  resize();
+  window.addEventListener("resize", resize);
+
+  return {
+    renderer,
+    scene,
+    camera,
+    dispose(): void {
+      renderer.setAnimationLoop(null);
+      window.removeEventListener("resize", resize);
+      renderer.dispose();
+    },
+  };
 }

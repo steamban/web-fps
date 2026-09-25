@@ -69,6 +69,15 @@ export function reconcile(
 
 const lerp = (from: number, to: number, t: number): number => from + (to - from) * t;
 
+/** Straight-line interpolation between two points. */
+export function lerpVec3(from: Vec3, to: Vec3, t: number): Vec3 {
+  return {
+    x: lerp(from.x, to.x, t),
+    y: lerp(from.y, to.y, t),
+    z: lerp(from.z, to.z, t),
+  };
+}
+
 /**
  * Interpolate a facing the short way round. Yaw wraps at +/-pi, and with yaw 0 facing -z
  * that seam is "looking towards +z" — somewhere a player stands constantly, where a plain
@@ -109,11 +118,7 @@ export function interpolatePlayers(
       const from = before.get(player.id) ?? player;
       return {
         id: player.id,
-        position: {
-          x: lerp(from.position.x, player.position.x, t),
-          y: lerp(from.position.y, player.position.y, t),
-          z: lerp(from.position.z, player.position.z, t),
-        },
+        position: lerpVec3(from.position, player.position, t),
         yaw: lerpAngle(from.yaw, player.yaw, t),
       };
     });

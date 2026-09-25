@@ -8,22 +8,24 @@ import {
   SANDBOX_MAP,
   type ServerMessage,
 } from "@web-fps/shared";
+import { type Game, startGame } from "./game";
 import { startSandbox } from "./sandbox";
 import { toWebSocketUrl } from "./serverUrl";
 
 /**
  * The join screen: reach a host, see who else is in the lobby, and — if you got there
- * first — run it. Starting a match still only moves the lobby's phase; the networked game
- * itself lands in M3, so everything on this screen is driven by `lobbyState` alone.
+ * first — run it. When the host starts, `matchStart` hands over to `game.ts`; this file
+ * keeps the socket and decides which screen is up, and never touches the renderer.
  *
  * The server is the authority on what each control does; the buttons only reflect the
  * last `lobbyState`, so a stale click is refused there rather than trusted here.
  *
- * The one thing here that needs no server is the M2 movement sandbox, which runs the same
+ * The one thing here that needs no server is the movement sandbox, which runs the same
  * simulation locally against the same map.
  */
 
 type LobbyState = Extract<ServerMessage, { type: "lobbyState" }>;
+type MatchStart = Extract<ServerMessage, { type: "matchStart" }>;
 
 const el = <T extends HTMLElement>(id: string): T => {
   const node = document.getElementById(id);
@@ -59,6 +61,7 @@ const KICK_TEXT: Record<KickReason, string> = {
 
 let socket: WebSocket | null = null;
 let current: LobbyState | null = null;
+let match: Game | null = null;
 /** Set when the server names a reason, so the close handler does not overwrite it. */
 let farewell: string | null = null;
 
@@ -119,9 +122,37 @@ function render(state: LobbyState): void {
   ui.pause.textContent = state.phase === "paused" ? "Resume" : "Pause";
 }
 
+/**
+ * Entered on `matchStart` and nothing else. A player leaving mid-match re-syncs the lobby
+ * to everyone still in it, so entering on the phase would rebuild the renderer every time
+ * somebody quit — and the phase carries no map to build it from anyway.
+ */
+function enterMatch(message: MatchStart): void {
+  const selfId = current?.selfId;
+  if (match || selfId === undefined) return;
+
+  ui.game.hidden = false;
+  match = startGame({
+    canvas: ui.view,
+    map: message.map,
+    selfId,
+    spawn: message.spawn,
+    tickRateHz: message.tickRateHz,
+    send,
+    // The server stops stepping while the host has it paused, so this stops too.
+    isRunning: () => current?.phase === "inProgress",
+  });
+}
+
 function showJoinScreen(message: string): void {
   socket = null;
   current = null;
+  // The one way out of a match in M3 is the socket closing, so this is the only teardown
+  // there is to get right. Without it the frozen view stays over the form, still eating
+  // the keyboard.
+  match?.dispose();
+  match = null;
+  ui.game.hidden = true;
   ui.lobby.hidden = true;
   ui.form.hidden = false;
   ui.status.textContent = message;
@@ -191,13 +222,26 @@ ui.form.addEventListener("submit", (event) => {
 
   on("message", (event) => {
     const message = decodeServerMessage(String(event.data));
-    if (message?.type !== "lobbyState") {
-      // `kicked` explains a disconnect that is about to happen; the match messages are M2/M3.
-      if (message?.type === "kicked") farewell = KICK_TEXT[message.reason];
-      return;
+    switch (message?.type) {
+      case "lobbyState":
+        current = message;
+        // Kept up to date under a running match too: it is what the host's Pause and
+        // Close read, and they stay reachable over the game view.
+        render(message);
+        break;
+      case "matchStart":
+        enterMatch(message);
+        break;
+      case "snapshot":
+        match?.snapshot(message);
+        break;
+      case "kicked":
+        // Explains a disconnect that is about to happen.
+        farewell = KICK_TEXT[message.reason];
+        break;
+      default:
+        break;
     }
-    current = message;
-    render(message);
   });
 
   on("error", () => {

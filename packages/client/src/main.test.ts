@@ -3,6 +3,7 @@ import {
   type ClientMessage,
   encodeMessage,
   PROTOCOL_VERSION,
+  SANDBOX_MAP,
   type ServerMessage,
 } from "@web-fps/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,7 +13,32 @@ import HTML from "../index.html?raw";
  * Cover for the join screen. `main.ts` drives the DOM directly, so the markup comes from
  * the real index.html — which also means a rename that breaks an element id fails here
  * rather than in a browser.
+ *
+ * The match itself is stubbed out: `game.ts` builds a WebGL context, which happy-dom has
+ * none of. What is worth covering here is the handover — which screen is up, and whether
+ * the renderer was built or torn down — because a match left running over the join form
+ * is the failure this file exists to catch.
  */
+
+const game = vi.hoisted(() => ({
+  startGame: vi.fn(),
+  dispose: vi.fn(),
+  snapshot: vi.fn(),
+}));
+vi.mock("./game", () => ({ startGame: game.startGame }));
+
+function matchStart(over: Record<string, unknown> = {}): ServerMessage {
+  return {
+    type: "matchStart",
+    tick: 0,
+    tickRateHz: 20,
+    killLimit: 30,
+    timeLimitMs: 600_000,
+    map: SANDBOX_MAP,
+    spawn: SANDBOX_MAP.spawns[0],
+    ...over,
+  } as ServerMessage;
+}
 
 const MARKUP = HTML.slice(HTML.indexOf("<main"), HTML.indexOf("</main>") + "</main>".length);
 
@@ -102,6 +128,9 @@ function lobbyState(over: Record<string, unknown> = {}): ServerMessage {
 beforeEach(async () => {
   document.body.innerHTML = MARKUP;
   FakeSocket.opened = [];
+  game.startGame.mockReset().mockReturnValue({ dispose: game.dispose, snapshot: game.snapshot });
+  game.dispose.mockReset();
+  game.snapshot.mockReset();
   vi.stubGlobal("WebSocket", FakeSocket);
   vi.resetModules();
   await import("./main");
@@ -205,7 +234,100 @@ describe("a second Join while the first connection is still pending", () => {
   });
 });
 
+describe("entering a match", () => {
+  const joinedLobby = (): FakeSocket => {
+    const socket = submitJoin("192.168.1.5:8080", "arvind");
+    socket?.accept();
+    socket?.deliver(lobbyState());
+    if (!socket) throw new Error("no connection was opened");
+    return socket;
+  };
+
+  it("waits for matchStart rather than entering on the lobby's phase", () => {
+    // The phase carries no map to build a scene from, and it arrives again every time
+    // somebody leaves — entering on it would rebuild the renderer each departure.
+    const socket = joinedLobby();
+    socket.deliver(lobbyState({ phase: "inProgress" }));
+
+    expect(game.startGame).not.toHaveBeenCalled();
+    expect(el("game").hidden).toBe(true);
+
+    socket.deliver(matchStart());
+    expect(el("game").hidden).toBe(false);
+    expect(game.startGame).toHaveBeenCalledTimes(1);
+  });
+
+  it("hands the game its own id and the spawn the server seated it at", () => {
+    joinedLobby().deliver(matchStart());
+    expect(game.startGame).toHaveBeenCalledWith(
+      expect.objectContaining({ selfId: "h", spawn: SANDBOX_MAP.spawns[0], tickRateHz: 20 }),
+    );
+  });
+
+  it("stops predicting while the host has the match paused", () => {
+    const socket = joinedLobby();
+    socket.deliver(matchStart());
+    const isRunning = game.startGame.mock.calls[0]?.[0]?.isRunning;
+
+    expect(isRunning?.()).toBe(false);
+    socket.deliver(lobbyState({ phase: "inProgress" }));
+    expect(isRunning?.()).toBe(true);
+    socket.deliver(lobbyState({ phase: "paused" }));
+    expect(isRunning?.()).toBe(false);
+  });
+
+  it("forwards snapshots to the match and does not restart it when the lobby re-syncs", () => {
+    const socket = joinedLobby();
+    socket.deliver(matchStart());
+
+    socket.deliver({ type: "snapshot", tick: 4, ackSeq: 2, players: [] });
+    // A player leaving re-delivers the lobby to everyone still in the match.
+    socket.deliver(
+      lobbyState({ phase: "inProgress", players: [{ id: "h", name: "a", isHost: true }] }),
+    );
+
+    expect(game.snapshot).toHaveBeenCalledTimes(1);
+    expect(game.startGame).toHaveBeenCalledTimes(1);
+    expect(game.dispose).not.toHaveBeenCalled();
+  });
+
+  it("keeps the host's controls reachable over the match", () => {
+    const socket = joinedLobby();
+    socket.deliver(lobbyState({ phase: "inProgress" }));
+    socket.deliver(matchStart());
+
+    expect(el("host-controls").hidden).toBe(false);
+    expect(el<HTMLButtonElement>("pause").hidden).toBe(false);
+    el<HTMLButtonElement>("pause").click();
+    expect(socket.frames().at(-1)).toEqual({ type: "pause", paused: true });
+  });
+});
+
 describe("leaving", () => {
+  it("tears the match down and puts the join screen back", () => {
+    // Without this the frozen view stays over the form, still swallowing the keyboard.
+    const socket = submitJoin("192.168.1.5:8080", "arvind");
+    socket?.accept();
+    socket?.deliver(lobbyState());
+    socket?.deliver(matchStart());
+
+    socket?.deliver({ type: "kicked", reason: "lobbyClosed" });
+    socket?.close();
+
+    expect(game.dispose).toHaveBeenCalledTimes(1);
+    expect(el("game").hidden).toBe(true);
+    expect(el("join-form").hidden).toBe(false);
+    expect(el("status").textContent).toBe("The host closed the lobby.");
+  });
+
+  it("survives a connection that dies before any match started", () => {
+    const socket = submitJoin("192.168.1.99:8080", "arvind");
+    socket?.close();
+
+    expect(game.dispose).not.toHaveBeenCalled();
+    expect(el("game").hidden).toBe(true);
+  });
+
   it("returns to the join screen with the reason the server gave", () => {
     const socket = submitJoin("192.168.1.5:8080", "arvind");
     socket?.accept();
