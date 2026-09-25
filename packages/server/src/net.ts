@@ -142,8 +142,14 @@ export function attachLobbyServer(httpServer: Server, config: Config): LobbyServ
    * effects at all — an effect-driven teardown would leave that match ticking forever.
    */
   function syncMatch(): void {
-    if (state.phase !== "inProgress" && state.phase !== "paused") return endMatch();
-    if (!game) return beginMatch();
+    if (state.phase !== "inProgress" && state.phase !== "paused") {
+      endMatch();
+      return;
+    }
+    if (!game) {
+      beginMatch();
+      return;
+    }
 
     // Whoever has gone stops being simulated; the match carries on for everyone else.
     const members = new Set(state.members.map((member) => member.id));
