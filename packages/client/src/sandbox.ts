@@ -1,4 +1,5 @@
 import {
+  MAX_CATCHUP_MS,
   type MapData,
   type MovementState,
   PLAYER_EYE_HEIGHT,
@@ -25,10 +26,6 @@ import { buildScene } from "./scene";
  * without either side changing.
  */
 const STEP_MS = 1000 / 60;
-
-/** A backgrounded tab returns with a huge elapsed time; simulate a quarter second of it and
- *  drop the rest, rather than freezing while it catches up. */
-const MAX_CATCHUP_MS = 250;
 
 export function startSandbox(canvas: HTMLCanvasElement, map: MapData): () => void {
   const spawn = map.spawns[0];

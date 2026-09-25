@@ -29,6 +29,14 @@ export const GRAVITY = 24;
 /** Largest rise a slope may carry the player up over in one move. */
 export const STEP_HEIGHT = 0.6;
 
+/**
+ * Most simulation a client's loop may catch up on in one frame. A backgrounded tab comes
+ * back with a huge elapsed time; simulating a quarter second of it and dropping the rest
+ * beats freezing while it works through minutes. The server sizes its per-player input
+ * queue from this, since the burst a returning tab sends is a legitimate one.
+ */
+export const MAX_CATCHUP_MS = 250;
+
 export interface MovementState {
   /** Horizontal centre of the player, at the height of their feet. */
   readonly position: Vec3;

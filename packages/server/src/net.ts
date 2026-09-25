@@ -1,23 +1,35 @@
 import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import {
+  type ClientMessage,
   decodeClientMessage,
   encodeMessage,
   type KickReason,
+  MAX_CATCHUP_MS,
   type PlayerId,
   PROTOCOL_VERSION,
+  SANDBOX_MAP,
   type ServerMessage,
   WS_PATH,
 } from "@web-fps/shared";
 import { type RawData, WebSocket, WebSocketServer } from "ws";
 import type { Config } from "./config";
 import * as lobby from "./lobby";
+import {
+  createGame,
+  type GameState,
+  matchStartFor,
+  type PlayerInput,
+  retainPlayers,
+  simulate,
+  snapshotFor,
+} from "./simulation";
 
 /**
- * The socket shell around the lobby state machine. Everything stateful about the game
- * lives in `lobby.ts` as pure transitions; this file owns only the things a pure function
- * cannot: connection identity, wire decoding, and carrying out the effects a transition
- * asks for. The same split will hold for the authoritative simulation in M3.
+ * The socket shell around the lobby state machine and the authoritative simulation.
+ * Everything stateful about the game lives in `lobby.ts` and `simulation.ts` as pure
+ * transitions; this file owns only the things a pure function cannot: connection
+ * identity, wire decoding, the clock, and carrying out the effects a transition asks for.
  */
 
 /** A socket that misses a ping round is half-open and would otherwise hold a lobby seat. */
@@ -64,6 +76,21 @@ export function attachLobbyServer(httpServer: Server, config: Config): LobbyServ
   const clients = new Map<PlayerId, Client>();
   let state = lobby.createLobby();
 
+  /** Inputs waiting for the next tick, oldest first, one queue per player. */
+  const queues = new Map<PlayerId, PlayerInput[]>();
+  let game: GameState | null = null;
+  let ticker: ReturnType<typeof setInterval> | null = null;
+
+  /**
+   * A client coming back from a backgrounded tab releases its whole capped catch-up at
+   * once, so the queue has to hold that much or a legitimate burst gets clipped.
+   *
+   * ponytail: this is also the ceiling on how much faster than everyone else a client that
+   * sends faster than the tick rate can move. v1 has no anti-cheat (PLAN.md); the cap is
+   * here so one client cannot make a tick take unbounded time, not to stop them cheating.
+   */
+  const maxQueuedInputs = Math.ceil(MAX_CATCHUP_MS / config.tickIntervalMs);
+
   const log = (message: string): void => {
     if (config.isDevMode) console.log(message);
   };
@@ -71,6 +98,57 @@ export function attachLobbyServer(httpServer: Server, config: Config): LobbyServ
   function send(to: PlayerId, message: ServerMessage): void {
     const client = clients.get(to);
     if (client?.socket.readyState === WebSocket.OPEN) client.socket.send(encodeMessage(message));
+  }
+
+  /** One tick: drain what arrived, advance the simulation, tell everyone where they are. */
+  function tick(): void {
+    // The timer runs through a pause; the simulation does not, so a resumed match picks up
+    // exactly where it stopped rather than replaying the pause.
+    if (!game || state.phase !== "inProgress") return;
+
+    const inputs: PlayerInput[] = [];
+    for (const queued of queues.values()) {
+      inputs.push(...queued.splice(0));
+    }
+
+    game = simulate(game, inputs, config.tickIntervalMs);
+    for (const player of game.players) send(player.id, snapshotFor(game, player.id));
+  }
+
+  function beginMatch(): void {
+    game = createGame(
+      SANDBOX_MAP,
+      state.members.map((member) => member.id),
+    );
+    // Per recipient, because each carries the spawn that player was actually seated at.
+    for (const player of game.players) send(player.id, matchStartFor(game, config, player));
+
+    ticker = setInterval(tick, config.tickIntervalMs);
+    // The HTTP server already holds the process open; this timer must not do it on its own.
+    ticker.unref();
+    log(`match started with ${game.players.length} players`);
+  }
+
+  function endMatch(): void {
+    if (ticker) clearInterval(ticker);
+    ticker = null;
+    game = null;
+    queues.clear();
+  }
+
+  /**
+   * A match exists exactly while the lobby says one is under way. Derived here rather than
+   * raised as an effect because `leave` on the last member resets to a fresh lobby with no
+   * effects at all — an effect-driven teardown would leave that match ticking forever.
+   */
+  function syncMatch(): void {
+    if (state.phase !== "inProgress" && state.phase !== "paused") return endMatch();
+    if (!game) return beginMatch();
+
+    // Whoever has gone stops being simulated; the match carries on for everyone else.
+    const members = new Set(state.members.map((member) => member.id));
+    game = retainPlayers(game, members);
+    for (const playerId of queues.keys()) if (!members.has(playerId)) queues.delete(playerId);
   }
 
   function apply(result: lobby.LobbyResult): void {
@@ -91,6 +169,24 @@ export function attachLobbyServer(httpServer: Server, config: Config): LobbyServ
           break;
       }
     }
+    syncMatch();
+  }
+
+  function enqueue(playerId: PlayerId, message: Extract<ClientMessage, { type: "input" }>): void {
+    // Nothing to simulate outside a running match. Dropped rather than held: queueing
+    // through a pause would burst the whole backlog into the tick that resumes it.
+    if (!game || state.phase !== "inProgress") return;
+
+    const queue = queues.get(playerId) ?? [];
+    queue.push({
+      playerId,
+      seq: message.seq,
+      keys: message.keys,
+      yaw: message.yaw,
+      pitch: message.pitch,
+    });
+    if (queue.length > maxQueuedInputs) queue.splice(0, queue.length - maxQueuedInputs);
+    queues.set(playerId, queue);
   }
 
   function reject(id: PlayerId, reason: KickReason): void {
@@ -133,8 +229,10 @@ export function attachLobbyServer(httpServer: Server, config: Config): LobbyServ
         apply(lobby.close(state, id));
         break;
       case "input":
+        enqueue(id, message);
+        break;
       case "fire":
-        // Accepted but inert until the authoritative simulation lands in M3.
+        // Accepted but inert until combat lands in M4.
         break;
     }
   }
@@ -173,6 +271,7 @@ export function attachLobbyServer(httpServer: Server, config: Config): LobbyServ
     close: () =>
       new Promise<void>((resolve) => {
         clearInterval(heartbeat);
+        endMatch();
         // ws withholds its own 'close' until every client has gone, so drop them first.
         for (const client of clients.values()) client.socket.terminate();
         wss.close(() => resolve());

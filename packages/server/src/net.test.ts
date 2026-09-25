@@ -91,6 +91,8 @@ function lobbyState(
   }, what);
 }
 
+const HELD = { forward: true, back: false, left: false, right: false, jump: false };
+
 async function join(url: string, name: string): Promise<TestClient> {
   const client = await connect(url);
   client.send({ type: "join", protocolVersion: PROTOCOL_VERSION, name });
@@ -286,23 +288,145 @@ describe("wire rejections", () => {
     expect(client.inbox.at(-1)).toEqual({ type: "kicked", reason: "invalidMessage" });
   });
 
-  it("accepts input and fire frames without acting on them yet", async () => {
+  it("drops input and fire frames sent outside a match without kicking the sender", async () => {
     const url = await startServer();
     const client = await join(url, "arvind");
     await lobbyState(client);
 
-    client.send({
-      type: "input",
-      seq: 1,
-      keys: { forward: true, back: false, left: false, right: false, jump: false },
-      yaw: 0,
-      pitch: 0,
-    });
+    client.send({ type: "input", seq: 1, keys: HELD, yaw: 0, pitch: 0 });
     client.send({ type: "fire", seq: 1, slot: "primary" });
 
-    // Nothing simulates yet (M3), but the connection must survive the frames.
+    // A client whose loop starts a tick early is not a client to disconnect.
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(client.isClosed()).toBe(false);
     expect(client.inbox.some((m) => m.type === "kicked")).toBe(false);
+    expect(client.inbox.some((m) => m.type === "snapshot")).toBe(false);
+  });
+});
+
+describe("a running match", () => {
+  const solo = loadConfig({ MIN_PLAYERS: "1" });
+
+  /** Starts a solo match and returns the host plus the `matchStart` they were sent. */
+  async function startMatch(config = solo) {
+    const url = await startServer(config);
+    const host = await join(url, "arvind");
+    await lobbyState(host);
+    host.send({ type: "start" });
+    const started = await waitFor(
+      () => host.inbox.find((m) => m.type === "matchStart"),
+      "matchStart",
+    );
+    return { url, host, started };
+  }
+
+  const snapshots = (client: TestClient) => client.inbox.filter((m) => m.type === "snapshot");
+
+  it("sends matchStart, carrying the spawn that recipient was seated at", async () => {
+    const { started } = await startMatch();
+
+    expect(started.map.name).toBe("sandbox");
+    expect(started.tickRateHz).toBe(solo.tickRateHz);
+    expect(started.map.spawns).toContainEqual(started.spawn);
+  });
+
+  it("gives two players different spawns and tells each about both", async () => {
+    const url = await startServer();
+    const host = await join(url, "arvind");
+    const guest = await join(url, "bob");
+    await lobbyState(guest, (s) => s.players.length === 2);
+    host.send({ type: "start" });
+
+    const hostStart = await waitFor(() => host.inbox.find((m) => m.type === "matchStart"), "host");
+    const guestStart = await waitFor(
+      () => guest.inbox.find((m) => m.type === "matchStart"),
+      "guest",
+    );
+    expect(hostStart.spawn).not.toEqual(guestStart.spawn);
+
+    const snapshot = await waitFor(() => snapshots(guest).at(-1), "snapshot");
+    expect(snapshot.players).toHaveLength(2);
+  });
+
+  it("starts broadcasting snapshots, and acks nothing until an input is simulated", async () => {
+    const { host } = await startMatch();
+
+    const first = await waitFor(() => snapshots(host).at(-1), "snapshot");
+    expect(first.ackSeq).toBe(0);
+    expect(first.players[0]).toMatchObject({
+      health: 100,
+      alive: true,
+      grounded: expect.any(Boolean),
+    });
+  });
+
+  it("moves the player the input asks for and acks the sequence it simulated", async () => {
+    const { host, started } = await startMatch();
+    await waitFor(() => snapshots(host).at(-1), "first snapshot");
+
+    for (let seq = 1; seq <= 4; seq += 1) {
+      host.send({ type: "input", seq, keys: HELD, yaw: 0, pitch: 0 });
+    }
+
+    const acked = await waitFor(() => snapshots(host).find((s) => s.ackSeq === 4), "ack of seq 4");
+    // Yaw 0 faces -z, so holding forward walks them off their spawn along -z.
+    expect(acked.players[0]?.position.z).toBeLessThan(started.spawn.position.z);
+  });
+
+  it("neither steps nor broadcasts while the host has it paused", async () => {
+    const { host } = await startMatch();
+    await waitFor(() => snapshots(host).at(-1), "first snapshot");
+
+    host.send({ type: "pause", paused: true });
+    await lobbyState(host, (s) => s.phase === "paused");
+
+    const atPause = snapshots(host).at(-1);
+    host.send({ type: "input", seq: 1, keys: HELD, yaw: 0, pitch: 0 });
+    await new Promise((resolve) => setTimeout(resolve, 6 * solo.tickIntervalMs));
+    expect(snapshots(host).at(-1)).toEqual(atPause);
+
+    // Resuming must not replay the pause: input sent through it was dropped, not queued.
+    host.send({ type: "pause", paused: false });
+    const resumed = await waitFor(
+      () => snapshots(host).find((s) => s.tick > (atPause?.tick ?? 0)),
+      "a snapshot after the resume",
+    );
+    expect(resumed.players[0]?.position).toEqual(atPause?.players[0]?.position);
+  });
+
+  it("stops simulating a player who leaves and keeps the match running for the rest", async () => {
+    const url = await startServer();
+    const host = await join(url, "arvind");
+    const guest = await join(url, "bob");
+    await lobbyState(guest, (s) => s.players.length === 2);
+    host.send({ type: "start" });
+    await waitFor(() => snapshots(host).find((s) => s.players.length === 2), "both players");
+
+    guest.close();
+
+    const alone = await waitFor(() => snapshots(host).find((s) => s.players.length === 1), "one");
+    expect(alone.players[0]?.id).toBe((await lobbyState(host)).selfId);
+  });
+
+  it("ends the match when the last player leaves, and starts a fresh one afterwards", async () => {
+    // The lobby resets with no effects at all when it empties, so a teardown hung off them
+    // would leave the old match ticking and stack a second timer on the next one.
+    const { url, host } = await startMatch();
+    await waitFor(() => snapshots(host).at(-1), "snapshot");
+    host.close();
+    await new Promise((resolve) => setTimeout(resolve, 8 * solo.tickIntervalMs));
+
+    const next = await join(url, "bob");
+    const view = await lobbyState(next);
+    expect(view.phase).toBe("waiting");
+    next.send({ type: "start" });
+
+    // A match the server never ended would still be holding the old player, and would
+    // never hand this one a matchStart to enter it with.
+    const started = await waitFor(() => next.inbox.find((m) => m.type === "matchStart"), "start");
+    const restarted = await waitFor(() => snapshots(next).at(-1), "snapshot of the new match");
+
+    expect(started.tick).toBe(0);
+    expect(restarted.players.map((player) => player.id)).toEqual([view.selfId]);
   });
 });
