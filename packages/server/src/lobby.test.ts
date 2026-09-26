@@ -3,12 +3,14 @@ import { type Config, loadConfig } from "./config";
 import {
   close,
   createLobby,
+  finish,
   hostIdOf,
   join,
   kick,
   type LobbyState,
   leave,
   lobbyStateFor,
+  restart,
   setPaused,
   start,
 } from "./lobby";
@@ -68,12 +70,14 @@ describe("join", () => {
     }
   });
 
-  it("rejects a joiner once the lobby has ended", () => {
+  it("rejects a joiner watching for the scoreboard to end", () => {
+    // `ended` is the intermission between two matches: as closed to a newcomer as a
+    // running one, and for the same reason — there is no match for them to appear in.
     const ended = { ...lobbyOf(2), phase: "ended" as const };
     expect(join(ended, config, { id: "late", name: "late" }).effects[0]).toEqual({
       kind: "send",
       to: "late",
-      message: { type: "kicked", reason: "lobbyClosed" },
+      message: { type: "kicked", reason: "matchInProgress" },
     });
   });
 });
@@ -187,6 +191,56 @@ describe("kick", () => {
     const { state } = kick(running, "p1", "p3");
     expect(ids(state)).toEqual(["p1", "p2"]);
     expect(state.phase).toBe("inProgress");
+  });
+});
+
+describe("finish", () => {
+  const running = { ...lobbyOf(2), phase: "inProgress" as const };
+
+  it("puts the scoreboard up", () => {
+    const result = finish(running);
+
+    expect(result.state.phase).toBe("ended");
+    expect(result.effects).toEqual([{ kind: "sync" }]);
+  });
+
+  it("ends a paused match too", () => {
+    expect(finish({ ...running, phase: "paused" }).state.phase).toBe("ended");
+  });
+
+  it("does nothing to a lobby that was not playing", () => {
+    for (const phase of ["waiting", "ended"] as const) {
+      const result = finish({ ...running, phase });
+      expect(result.state.phase).toBe(phase);
+      expect(result.effects).toEqual([]);
+    }
+  });
+});
+
+describe("restart", () => {
+  const ended = { ...lobbyOf(2), phase: "ended" as const };
+
+  it("goes straight into the next match on the same map", () => {
+    const result = restart(ended, config);
+
+    expect(result.state.phase).toBe("inProgress");
+    expect(ids(result.state)).toEqual(["p1", "p2"]);
+    expect(result.effects).toEqual([{ kind: "sync" }]);
+  });
+
+  it("waits instead when too many people left during the match", () => {
+    // Restarting into a deathmatch for one is worse than sitting in the lobby until
+    // somebody comes back — and it is a match the host could not have started by hand.
+    const alone = { ...ended, members: ended.members.slice(0, 1) };
+
+    expect(restart(alone, config).state.phase).toBe("waiting");
+    expect(restart(alone, devConfig).state.phase).toBe("inProgress");
+  });
+
+  it("does nothing unless a scoreboard is up", () => {
+    for (const phase of ["waiting", "inProgress", "paused"] as const) {
+      expect(restart({ ...ended, phase }, config).effects).toEqual([]);
+    }
   });
 });
 

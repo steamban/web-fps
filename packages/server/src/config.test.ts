@@ -13,6 +13,7 @@ describe("loadConfig defaults", () => {
       timeLimitMs: 600_000,
       respawnMs: 5000,
       spawnProtectionMs: 5000,
+      intermissionMs: 10_000,
       gameMode: "player",
       isDevMode: false,
     });
@@ -44,6 +45,7 @@ describe("loadConfig parsing", () => {
       TIME_LIMIT_MINUTES: "5",
       RESPAWN_SECONDS: "3",
       SPAWN_PROTECTION_SECONDS: "2",
+      INTERMISSION_SECONDS: "4",
       GAME_MODE: "dev",
     });
 
@@ -57,6 +59,7 @@ describe("loadConfig parsing", () => {
       timeLimitMs: 300_000,
       respawnMs: 3000,
       spawnProtectionMs: 2000,
+      intermissionMs: 4000,
       gameMode: "dev",
       isDevMode: true,
     });

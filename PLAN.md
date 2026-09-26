@@ -88,6 +88,7 @@ Gameplay/session tunables are env-configurable so you can retune without touchin
 | `TIME_LIMIT_MINUTES` | `10` | Match ends at this clock time |
 | `RESPAWN_SECONDS` | `5` | Death → respawn delay |
 | `SPAWN_PROTECTION_SECONDS` | `5` | Post-respawn invulnerability |
+| `INTERMISSION_SECONDS` | `10` | Scoreboard time between one match and the next |
 | `GAME_MODE` | `player` | `dev` \| `player` — see below |
 
 All read through one `packages/server/src/config.ts`: parses `process.env` once at boot, applies defaults, validates ranges (e.g. `MIN_PLAYERS <= MAX_PLAYERS`, all numerics positive), and exports a single typed `Config` object. Fail fast — invalid config crashes on startup with a clear message, not at some random point mid-match. Nothing outside this module touches `process.env` directly.
@@ -575,6 +576,26 @@ exists, the condition that would reverse it.
   by id: arbitrary between two identical lines but total, and every client showing the
   same order is worth more than a fairer tie-break each of them computes separately.
   Anybody the lobby no longer has a name for has left mid-match and is left off.
+
+- **The scoreboard is the `ended` phase, which nothing could reach until now.** M1
+  defined it and `close` deliberately empties the lobby instead of parking it there, so
+  the phase sat unreachable through M2-M4. It now means exactly one thing: a match has
+  finished and the next one is on a timer. A latecomer is refused with `matchInProgress`
+  rather than `lobbyClosed`, because that is what an intermission is to somebody outside
+  it — there is no match for them to appear in either way.
+- **The intermission is a timer in the shell, not a phase the simulation counts down.**
+  `simulate` has no clock and the ticker is stopped the moment the match ends, so there
+  is nothing left to count in; `net.ts` already owns every other timer. `syncMatch` cancels
+  it on the way out of `ended` — the lobby emptying, the host closing it, the next match
+  beginning — but never on the way *in*, which is the one transition that schedules it.
+  A restart that survived a `close` would start a match nobody is in.
+- **A restart that would be a deathmatch for one waits in the lobby instead.** It is the
+  match `start` would have refused to begin by hand, and `MIN_PLAYERS` is the only
+  statement of what this server thinks a match is.
+- **`INTERMISSION_SECONDS` is a config var rather than a constant.** It is a session-shape
+  timer, which is exactly what PLAN.md's Configuration section says belongs in the
+  environment — a LAN party wanting twenty seconds to read the board should not need a
+  rebuild.
 
 ## Technical details
 

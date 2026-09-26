@@ -131,4 +131,5 @@ Invalid values fail at boot with a message naming each offending variable.
 | `TIME_LIMIT_MINUTES` | `10` | Clock that ends the match |
 | `RESPAWN_SECONDS` | `5` | Death to respawn delay |
 | `SPAWN_PROTECTION_SECONDS` | `5` | Post-respawn invulnerability |
+| `INTERMISSION_SECONDS` | `10` | Scoreboard time between one match and the next |
 | `GAME_MODE` | `player` | `dev` adds a debug HUD, verbose logs and solo start |

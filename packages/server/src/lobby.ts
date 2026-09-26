@@ -63,7 +63,8 @@ const refuse = (
 });
 
 export function join(state: LobbyState, config: Config, member: LobbyMember): LobbyResult {
-  if (state.phase === "ended") return refuse(state, member.id, "lobbyClosed");
+  // `ended` is the scoreboard between two matches, so it is as closed to a newcomer as a
+  // running one is — and for the same reason: they would have no match to appear in.
   if (state.phase !== "waiting") return refuse(state, member.id, "matchInProgress");
   if (state.members.length >= config.maxPlayers) return refuse(state, member.id, "lobbyFull");
 
@@ -100,6 +101,32 @@ export function setPaused(state: LobbyState, actorId: PlayerId, paused: boolean)
   };
 }
 
+/**
+ * The match reached one of its limits. The scoreboard goes up and the lobby sits in
+ * `ended` until the intermission is over — the phase M1 defined and nothing could reach
+ * until now, because `close` empties the lobby rather than parking it here.
+ */
+export function finish(state: LobbyState): LobbyResult {
+  if (state.phase !== "inProgress" && state.phase !== "paused") return ignored(state);
+
+  return { state: { ...state, phase: "ended" }, effects: [{ kind: "sync" }] };
+}
+
+/**
+ * The scoreboard's time is up. Straight back into a match on the same map, unless enough
+ * people left during it that the lobby could not have started one — in which case it
+ * waits for them rather than running a deathmatch for one.
+ */
+export function restart(state: LobbyState, config: Config): LobbyResult {
+  if (state.phase !== "ended") return ignored(state);
+  const enough = state.members.length >= config.minPlayers || config.isDevMode;
+
+  return {
+    state: { ...state, phase: enough ? "inProgress" : "waiting" },
+    effects: [{ kind: "sync" }],
+  };
+}
+
 export function kick(state: LobbyState, actorId: PlayerId, targetId: PlayerId): LobbyResult {
   if (!isHost(state, actorId) || targetId === actorId) return ignored(state);
   if (!state.members.some((member) => member.id === targetId)) return ignored(state);
@@ -117,8 +144,8 @@ export function kick(state: LobbyState, actorId: PlayerId, targetId: PlayerId): 
 
 /**
  * Closing empties the lobby rather than parking it in `ended`, so the server stays
- * usable: the next person to connect hosts a fresh match. The `ended` phase and its
- * scoreboard arrive with the round flow in M5.
+ * usable: the next person to connect hosts a fresh match. `ended` means the scoreboard
+ * between two matches, which is somewhere a closed lobby must not be left.
  */
 export function close(state: LobbyState, actorId: PlayerId): LobbyResult {
   if (!isHost(state, actorId)) return ignored(state);

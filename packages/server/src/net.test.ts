@@ -468,3 +468,75 @@ describe("a running match", () => {
     expect(restarted.players.map((player) => player.id)).toEqual([view.selfId]);
   });
 });
+
+describe("the end of a round", () => {
+  /** A solo match that runs out of clock almost immediately. The scoreboard is left up
+   *  long enough not to restart under a test that is not about the restart. */
+  const brief = loadConfig({
+    MIN_PLAYERS: "1",
+    TIME_LIMIT_MINUTES: "0.01",
+    INTERMISSION_SECONDS: "30",
+  });
+  const withIntermission = (seconds: string) =>
+    loadConfig({ MIN_PLAYERS: "1", TIME_LIMIT_MINUTES: "0.01", INTERMISSION_SECONDS: seconds });
+
+  async function playOut(config = brief) {
+    const url = await startServer(config);
+    const host = await join(url, "arvind");
+    await lobbyState(host);
+    host.send({ type: "start" });
+    const ended = await waitFor(() => host.inbox.find((m) => m.type === "matchEnd"), "matchEnd");
+    return { url, host, ended };
+  }
+
+  it("sends the scoreboard when the clock runs out and stops the simulation", async () => {
+    const { host, ended } = await playOut();
+
+    expect(ended.reason).toBe("timeLimit");
+    expect(ended.scores).toEqual([
+      { id: (await lobbyState(host)).selfId, name: "arvind", score: 0, deaths: 0 },
+    ]);
+    expect((await lobbyState(host, (s) => s.phase === "ended")).phase).toBe("ended");
+
+    // Nothing is stepped behind the scoreboard.
+    const last = host.inbox.filter((m) => m.type === "snapshot").at(-1)?.tick;
+    await new Promise((resolve) => setTimeout(resolve, 6 * brief.tickIntervalMs));
+    expect(host.inbox.filter((m) => m.type === "snapshot").at(-1)?.tick).toBe(last);
+  });
+
+  it("starts the next match on the same map when the intermission is up", async () => {
+    const { host } = await playOut(withIntermission("0.15"));
+    const starts = () => host.inbox.filter((m) => m.type === "matchStart");
+
+    const next = await waitFor(
+      () => (starts().length > 1 ? starts().at(-1) : undefined),
+      "restart",
+    );
+    expect(next.tick).toBe(0);
+    expect(next.map.name).toBe("sandbox");
+    expect((await lobbyState(host, (s) => s.phase === "inProgress")).phase).toBe("inProgress");
+  });
+
+  it("refuses a latecomer while the scoreboard is up", async () => {
+    const { url } = await playOut();
+    const late = await join(url, "bob");
+
+    const kicked = await waitFor(() => late.inbox.find((m) => m.type === "kicked"), "refusal");
+    expect(kicked.reason).toBe("matchInProgress");
+  });
+
+  it("drops the pending restart when the host closes the lobby over the scoreboard", async () => {
+    const { url, host } = await playOut(withIntermission("0.1"));
+    host.send({ type: "close" });
+    await waitFor(() => (host.isClosed() ? true : undefined), "the host's disconnect");
+
+    // A restart that still fired here would start a match nobody is in, and would hand
+    // the next person to connect a lobby already in progress.
+    const next = await join(url, "bob");
+    const view = await lobbyState(next);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(view.phase).toBe("waiting");
+    expect(next.inbox.some((m) => m.type === "matchStart")).toBe(false);
+  });
+});

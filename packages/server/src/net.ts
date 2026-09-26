@@ -6,6 +6,7 @@ import {
   encodeMessage,
   type KickReason,
   MAX_CATCHUP_MS,
+  type MatchEndReason,
   type PlayerId,
   PROTOCOL_VERSION,
   SANDBOX_MAP,
@@ -18,6 +19,8 @@ import * as lobby from "./lobby";
 import {
   createGame,
   type GameState,
+  matchEndMessage,
+  matchOutcome,
   matchStartFor,
   type PlayerInput,
   retainPlayers,
@@ -81,6 +84,8 @@ export function attachLobbyServer(httpServer: Server, config: Config): LobbyServ
   const queues = new Map<PlayerId, PlayerInput[]>();
   let game: GameState | null = null;
   let ticker: ReturnType<typeof setInterval> | null = null;
+  /** Runs while the scoreboard is up; the next match starts when it fires. */
+  let intermission: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * A client coming back from a backgrounded tab releases its whole capped catch-up at
@@ -114,6 +119,34 @@ export function attachLobbyServer(httpServer: Server, config: Config): LobbyServ
 
     game = simulate(game, inputs, config.tickIntervalMs);
     for (const player of game.players) send(player.id, snapshotFor(game, player.id));
+
+    // Asked of the state the tick just produced, so the snapshot everyone has in hand is
+    // the one the scoreboard is about to be drawn from.
+    const outcome = matchOutcome(game);
+    if (outcome !== null) finishMatch(outcome);
+  }
+
+  /**
+   * The match reached a limit: everyone sees the scoreboard, and the next one is put on
+   * the clock before the lobby transition tears this one down — `finish` moves the phase
+   * to `ended`, which `syncMatch` reads as "stop ticking", so the final state has to be
+   * turned into a message first.
+   */
+  function finishMatch(reason: MatchEndReason): void {
+    if (!game) return;
+    const names = new Map(state.members.map((member) => [member.id, member.name]));
+    const scoreboard = matchEndMessage(game, reason, names);
+    for (const member of state.members) send(member.id, scoreboard);
+    log(`match over: ${reason}`);
+
+    intermission = setTimeout(() => {
+      intermission = null;
+      apply(lobby.restart(state, config));
+    }, config.intermissionMs);
+    // The HTTP server already holds the process open; this timer must not do it on its own.
+    intermission.unref();
+
+    apply(lobby.finish(state));
   }
 
   function beginMatch(): void {
@@ -138,17 +171,32 @@ export function attachLobbyServer(httpServer: Server, config: Config): LobbyServ
     queues.clear();
   }
 
+  function cancelIntermission(): void {
+    if (intermission) clearTimeout(intermission);
+    intermission = null;
+  }
+
   /**
    * A match exists exactly while the lobby says one is under way. Derived here rather than
    * raised as an effect because `leave` on the last member resets to a fresh lobby with no
    * effects at all — an effect-driven teardown would leave that match ticking forever.
    */
   function syncMatch(): void {
-    if (state.phase !== "inProgress" && state.phase !== "paused") {
+    // The scoreboard is the one phase with no simulation under it and a timer still to
+    // run: the match is torn down, the intermission is left alone. Anywhere else — the
+    // next match starting, the lobby emptying, the host closing it — the timer goes too,
+    // or it fires into a lobby that has moved on without it.
+    if (state.phase === "ended") {
       endMatch();
       return;
     }
+    if (state.phase !== "inProgress" && state.phase !== "paused") {
+      endMatch();
+      cancelIntermission();
+      return;
+    }
     if (!game) {
+      cancelIntermission();
       beginMatch();
       return;
     }
@@ -280,6 +328,7 @@ export function attachLobbyServer(httpServer: Server, config: Config): LobbyServ
       new Promise<void>((resolve) => {
         clearInterval(heartbeat);
         endMatch();
+        cancelIntermission();
         // ws withholds its own 'close' until every client has gone, so drop them first.
         for (const client of clients.values()) client.socket.terminate();
         wss.close(() => resolve());

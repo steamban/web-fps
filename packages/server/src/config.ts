@@ -22,6 +22,8 @@ export interface Config {
   readonly timeLimitMs: number;
   readonly respawnMs: number;
   readonly spawnProtectionMs: number;
+  /** How long the scoreboard stays up between a match ending and the next one starting. */
+  readonly intermissionMs: number;
   readonly gameMode: GameMode;
   /** Debug HUD, verbose logging, and solo start. See PLAN.md "Configuration". */
   readonly isDevMode: boolean;
@@ -56,6 +58,7 @@ const EnvSchema = z
     TIME_LIMIT_MINUTES: envNumber(decimal.positive(), 10),
     RESPAWN_SECONDS: envNumber(decimal.nonnegative(), 5),
     SPAWN_PROTECTION_SECONDS: envNumber(decimal.nonnegative(), 5),
+    INTERMISSION_SECONDS: envNumber(decimal.nonnegative(), 10),
     GAME_MODE: z.preprocess(blankAsAbsent, z.enum(GAME_MODES).default("player")),
   })
   .refine((env) => env.MIN_PLAYERS <= env.MAX_PLAYERS, {
@@ -95,6 +98,7 @@ export function loadConfig(env: Env = process.env): Config {
     timeLimitMs: Math.round(parsed.TIME_LIMIT_MINUTES * 60_000),
     respawnMs: Math.round(parsed.RESPAWN_SECONDS * 1000),
     spawnProtectionMs: Math.round(parsed.SPAWN_PROTECTION_SECONDS * 1000),
+    intermissionMs: Math.round(parsed.INTERMISSION_SECONDS * 1000),
     gameMode: parsed.GAME_MODE,
     isDevMode: parsed.GAME_MODE === "dev",
   };
