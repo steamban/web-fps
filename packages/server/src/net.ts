@@ -327,6 +327,11 @@ export function attachLobbyServer(httpServer: Server, config: Config): LobbyServ
     close: () =>
       new Promise<void>((resolve) => {
         clearInterval(heartbeat);
+        // Reset before the sockets go, not after: every terminated socket still runs its
+        // close handler, and a `leave` that finds the lobby still `inProgress` sends
+        // `syncMatch` down the "no game, start one" branch — building a fresh match, and
+        // a fresh ticker, on a server that is shutting down.
+        state = lobby.createLobby();
         endMatch();
         cancelIntermission();
         // ws withholds its own 'close' until every client has gone, so drop them first.

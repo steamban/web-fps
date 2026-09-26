@@ -615,6 +615,12 @@ exists, the condition that would reverse it.
   against would have to find the map before they could play. The yaw is taken from the
   snapshot, which at that tick is the server's own, because a dead client has sent no
   input to overwrite it with. Pitch is levelled with it.
+- **A shutdown resets the lobby before it drops the sockets.** Terminating a socket still
+  runs its close handler, so `leave` fired once per client on the way out — and every
+  departure but the last left the phase at `inProgress`, which `syncMatch` reads as "no
+  game, start one". A three-player server closing therefore built a fresh match and a
+  fresh ticker on its way down. This predates M5; the round flow only made it visible,
+  because a ticker started there now also has a scoreboard timer behind it.
 - **`waiting` is what takes a match off the client's screen; there is not always a second
   `matchStart` to do it.** A restart the server refuses for want of players arrives as a
   phase and nothing else, and the client's teardown lived only in `showJoinScreen` — so

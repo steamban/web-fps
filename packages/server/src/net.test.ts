@@ -9,7 +9,7 @@ import {
   type ServerMessage,
   WS_PATH,
 } from "@web-fps/shared";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { type Config, loadConfig } from "./config";
 import { attachLobbyServer } from "./net";
 
@@ -466,6 +466,44 @@ describe("a running match", () => {
 
     expect(started.tick).toBe(0);
     expect(restarted.players.map((player) => player.id)).toEqual([view.selfId]);
+  });
+});
+
+describe("shutting down", () => {
+  it("does not start a fresh match on the way out", async () => {
+    // Every terminated socket still runs its close handler, and a `leave` that found the
+    // lobby still running would send `syncMatch` down its "no game, start one" branch —
+    // building a match, and a ticker, on a server that is going away.
+    const dev = loadConfig({ GAME_MODE: "dev", MIN_PLAYERS: "1" });
+    const logged: string[] = [];
+    const console_ = vi.spyOn(console, "log").mockImplementation((line) => {
+      logged.push(String(line));
+    });
+
+    try {
+      const http: Server = createServer();
+      const server = attachLobbyServer(http, dev);
+      await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+      const url = `ws://127.0.0.1:${(http.address() as AddressInfo).port}${WS_PATH}`;
+
+      // Three, because the last member to leave resets the lobby on its own — it is
+      // every departure *before* that one which finds a match still in progress.
+      const host = await join(url, "arvind");
+      await join(url, "bob");
+      await join(url, "chris");
+      await lobbyState(host, (view) => view.players.length === 3);
+      host.send({ type: "start" });
+      await waitFor(() => host.inbox.find((m) => m.type === "matchStart"), "matchStart");
+
+      logged.length = 0;
+      await server.close();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await new Promise<void>((resolve) => http.close(() => resolve()));
+
+      expect(logged.filter((line) => line.startsWith("match started"))).toEqual([]);
+    } finally {
+      console_.mockRestore();
+    }
   });
 });
 
