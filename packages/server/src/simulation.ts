@@ -85,8 +85,8 @@ export interface RoundRules {
 /**
  * The configured milliseconds, quantised to the tick the simulation actually steps in.
  *
- * Rounded up, like `fireCooldownTicks`: a limit is a floor on what was asked for, so 5 s
- * of protection at 3 Hz is 5.33 s rather than 4.67 s. The time limit is floored at one
+ * Rounded up, like `fireCooldownTicks`: a limit is a floor on what was asked for, so 75 ms
+ * of protection at the default 20 Hz is 100 ms rather than 50. The time limit is floored at one
  * tick as well — a match that ends before it has stepped has no state to end from, and
  * `matchStart.timeLimitMs` is a positive integer on the wire.
  */

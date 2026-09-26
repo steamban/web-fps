@@ -675,11 +675,14 @@ describe("roundRules", () => {
   });
 
   it("rounds a limit up rather than cutting it short", () => {
-    // 3 Hz: 5 s of respawn is 15 ticks, and 14 would hand the player back early.
-    const rules = roundRules(loadConfig({ TICK_RATE_HZ: "3" }));
+    // 75 ms at the default 20 Hz is a tick and a half. One would hand the player back
+    // early and end their protection early; the rounding has to be the other way.
+    const rules = roundRules(
+      loadConfig({ RESPAWN_SECONDS: "0.075", SPAWN_PROTECTION_SECONDS: "0.075" }),
+    );
 
-    expect(rules.respawnTicks).toBe(15);
-    expect(rules.protectionTicks).toBe(15);
+    expect(rules.respawnTicks).toBe(2);
+    expect(rules.protectionTicks).toBe(2);
   });
 
   it("leaves a match at least one tick to be played in", () => {
