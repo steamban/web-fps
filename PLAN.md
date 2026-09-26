@@ -597,6 +597,13 @@ exists, the condition that would reverse it.
   environment — a LAN party wanting twenty seconds to read the board should not need a
   rebuild.
 
+- **A second `matchStart` rebuilds the client's match rather than being ignored.** M3's
+  guard was `if (match) return`, which was right when the only way out of a match was the
+  socket closing; the next round arrives on the same socket. `startGame` takes the map,
+  the spawn and the tick rate at construction and keeps a prediction and an interpolation
+  history against them, so the old one is disposed and a new one built — the same teardown
+  a disconnect already does.
+
 ## Technical details
 
 Finer-grained practices worth locking in now, since they're much cheaper to follow from M0 than to retrofit after M3.

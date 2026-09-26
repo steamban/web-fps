@@ -127,10 +127,16 @@ function render(state: LobbyState): void {
  * Entered on `matchStart` and nothing else. A player leaving mid-match re-syncs the lobby
  * to everyone still in it, so entering on the phase would rebuild the renderer every time
  * somebody quit — and the phase carries no map to build it from anyway.
+ *
+ * A second `matchStart` is the next round after a scoreboard, on the same socket. The
+ * running match is torn down rather than reused: it holds a spawn, a prediction and an
+ * interpolation history belonging to a match that is over, and `startGame` takes all
+ * three at construction.
  */
 function enterMatch(message: MatchStart): void {
   const selfId = current?.selfId;
-  if (match || selfId === undefined) return;
+  if (selfId === undefined) return;
+  match?.dispose();
 
   ui.game.hidden = false;
   match = startGame({

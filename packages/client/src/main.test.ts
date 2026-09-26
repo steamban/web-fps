@@ -321,6 +321,21 @@ describe("entering a match", () => {
     expect(el("dead").hidden).toBe(true);
   });
 
+  it("rebuilds the view for the next round rather than playing on in the old one", () => {
+    // The second matchStart is the round after a scoreboard. Reusing the renderer would
+    // leave the player predicting from the spawn, and against the geometry, of the match
+    // that just ended.
+    const socket = joinedLobby();
+    socket.deliver(matchStart());
+    socket.deliver(matchStart({ tick: 0, spawn: SANDBOX_MAP.spawns[1] }));
+
+    expect(game.startGame).toHaveBeenCalledTimes(2);
+    expect(game.dispose).toHaveBeenCalledTimes(1);
+    expect(game.startGame.mock.calls.at(-1)?.[0]).toMatchObject({
+      spawn: SANDBOX_MAP.spawns[1],
+    });
+  });
+
   it("keeps the host's controls reachable over the match", () => {
     const socket = joinedLobby();
     socket.deliver(lobbyState({ phase: "inProgress" }));
