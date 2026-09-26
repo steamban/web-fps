@@ -615,6 +615,13 @@ exists, the condition that would reverse it.
   against would have to find the map before they could play. The yaw is taken from the
   snapshot, which at that tick is the server's own, because a dead client has sent no
   input to overwrite it with. Pitch is levelled with it.
+- **The scoreboard's `z-index` is load-bearing, and it stops the view taking clicks.**
+  `#game` is a fixed, opaque, full-viewport canvas that comes later in the markup, so an
+  overlay left at `auto` paints *behind* it and is never seen — which is exactly what
+  shipped, because happy-dom does no layout and every test could see was `hidden`. The
+  view keeps drawing behind the board but stops taking clicks, or the first click on it
+  recaptures the mouse that was just handed back and latches a trigger for a round that
+  has not started.
 - **The scoreboard releases the mouse and sits under the host's controls.** Close is the
   one thing a host may still want during an intermission, and a board worth reading is
   worth reading with a cursor. The next `matchStart` takes it down, which is also what

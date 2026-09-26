@@ -149,9 +149,13 @@
         color: #6fb2e2;
       }
       /* Over the frozen view, and clear of the host's controls — which stay on top of it,
-         because Close is the one thing a host may still want during an intermission. */
+         because Close is the one thing a host may still want during an intermission.
+         The z-index is load-bearing: #game is a fixed, opaque, full-viewport canvas that
+         comes later in the markup, so at `auto` the board paints behind it and is never
+         seen at all. */
       #scoreboard:not([hidden]) {
         position: fixed;
+        z-index: 1;
         left: 50%;
         top: 12%;
         transform: translateX(-50%);
@@ -178,6 +182,12 @@
       #next-round {
         margin: 12px 0 0;
         color: #8d949c;
+      }
+      /* The view keeps drawing behind the board, but it stops taking clicks: a click on
+         it would otherwise recapture the mouse that `showScoreboard` just handed back,
+         and latch a trigger for the round that has not started yet. */
+      body:has(#scoreboard:not([hidden])) #view {
+        pointer-events: none;
       }
       #hint {
         position: absolute;
