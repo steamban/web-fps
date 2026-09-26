@@ -615,6 +615,12 @@ exists, the condition that would reverse it.
   against would have to find the map before they could play. The yaw is taken from the
   snapshot, which at that tick is the server's own, because a dead client has sent no
   input to overwrite it with. Pitch is levelled with it.
+- **`waiting` is what takes a match off the client's screen; there is not always a second
+  `matchStart` to do it.** A restart the server refuses for want of players arrives as a
+  phase and nothing else, and the client's teardown lived only in `showJoinScreen` — so
+  the survivor of a two-player round sat behind a frozen view and a scoreboard promising
+  a match that would never start. `waiting` is the one phase with no match under it, which
+  makes it exact: the same teardown both exits from a match now route through.
 - **The scoreboard's `z-index` is load-bearing, and it stops the view taking clicks.**
   `#game` is a fixed, opaque, full-viewport canvas that comes later in the markup, so an
   overlay left at `auto` paints *behind* it and is never seen — which is exactly what

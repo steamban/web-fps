@@ -377,6 +377,25 @@ describe("entering a match", () => {
     expect(el("scoreboard").hidden).toBe(true);
   });
 
+  it("leaves the match view when the lobby goes back to waiting", () => {
+    // A restart the server refused for want of players: it sends the phase and no second
+    // matchStart, so this is the only thing that can take the last match off the screen.
+    const socket = joinedLobby();
+    socket.deliver(lobbyState({ phase: "inProgress" }));
+    socket.deliver(matchStart());
+    socket.deliver({ type: "matchEnd", reason: "timeLimit", scores: [] });
+    socket.deliver(lobbyState({ phase: "ended" }));
+    expect(el("game").hidden).toBe(false);
+
+    socket.deliver(lobbyState({ phase: "waiting" }));
+
+    expect(el("scoreboard").hidden).toBe(true);
+    expect(el("game").hidden).toBe(true);
+    expect(el("lobby").hidden).toBe(false);
+    // The renderer goes with it, or it keeps drawing and keeps the keyboard.
+    expect(game.dispose).toHaveBeenCalledTimes(1);
+  });
+
   it("clears the scoreboard when the socket drops", () => {
     const socket = joinedLobby();
     socket.deliver(matchStart());

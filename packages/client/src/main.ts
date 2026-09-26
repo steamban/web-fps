@@ -133,6 +133,12 @@ function render(state: LobbyState): void {
   ui.phase.textContent = describePhase(state);
   ui.players.replaceChildren(...state.players.map((player) => playerRow(player, state)));
 
+  // `waiting` is the one phase with no match under it. Reached from a fresh lobby, where
+  // this does nothing, and from a restart the server refused for want of players — which
+  // arrives as a phase and nothing else, so it is the only thing that can take the last
+  // match off the screen.
+  if (state.phase === "waiting") leaveMatch();
+
   ui.hostControls.hidden = !isHost;
   ui.start.hidden = state.phase !== "waiting";
   ui.start.disabled = state.players.length < state.minPlayers;
@@ -212,18 +218,24 @@ function showScoreboard(message: MatchEnd): void {
   document.exitPointerLock?.();
 }
 
-function showJoinScreen(message: string): void {
-  socket = null;
-  current = null;
-  // The one way out of a match in M3 is the socket closing, so this is the only teardown
-  // there is to get right. Without it the frozen view stays over the form, still eating
-  // the keyboard.
+/**
+ * Everything the last match left on the screen. Without it the frozen view stays over
+ * whatever is behind it, still eating the keyboard, and a scoreboard promising a next
+ * match sits over a lobby that is waiting for players.
+ */
+function leaveMatch(): void {
   match?.dispose();
   match = null;
   ui.game.hidden = true;
   ui.dead.hidden = true;
   ui.protected.hidden = true;
   ui.scoreboard.hidden = true;
+}
+
+function showJoinScreen(message: string): void {
+  socket = null;
+  current = null;
+  leaveMatch();
   ui.lobby.hidden = true;
   ui.form.hidden = false;
   ui.status.textContent = message;
