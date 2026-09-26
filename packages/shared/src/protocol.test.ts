@@ -159,25 +159,26 @@ describe("host-only messages", () => {
 });
 
 describe("decodeServerMessage", () => {
+  const player = {
+    id: "p1",
+    position: { x: 1, y: 2, z: 3 },
+    yaw: 0,
+    pitch: 0,
+    velocityY: -4.5,
+    grounded: false,
+    health: 100,
+    alive: true,
+    spawnProtected: false,
+    respawnAtTick: null as number | null,
+    score: 2,
+    deaths: 1,
+  };
+
   const snapshot = {
     type: "snapshot" as const,
     tick: 120,
     ackSeq: 7,
-    players: [
-      {
-        id: "p1",
-        position: { x: 1, y: 2, z: 3 },
-        yaw: 0,
-        pitch: 0,
-        velocityY: -4.5,
-        grounded: false,
-        health: 100,
-        alive: true,
-        spawnProtected: false,
-        score: 2,
-        deaths: 1,
-      },
-    ],
+    players: [player],
   };
 
   it("round-trips a snapshot", () => {
@@ -199,6 +200,18 @@ describe("decodeServerMessage", () => {
       const { [field]: _dropped, ...rest } = snapshot.players[0] ?? {};
       expect(ServerMessageSchema.safeParse({ ...snapshot, players: [rest] }).success).toBe(false);
     }
+  });
+
+  it("carries the tick a dead player comes back at", () => {
+    const dead = { ...player, health: 0, alive: false, respawnAtTick: 220 };
+    expect(decodeServerMessage(encodeMessage({ ...snapshot, players: [dead] }))).toMatchObject({
+      players: [{ respawnAtTick: 220 }],
+    });
+
+    // Absent is not the same as null: a client that read `undefined` as "alive" would
+    // draw a corpse walking.
+    const { respawnAtTick: _dropped, ...missing } = dead;
+    expect(ServerMessageSchema.safeParse({ ...snapshot, players: [missing] }).success).toBe(false);
   });
 
   it("round-trips a matchStart carrying the recipient's own spawn", () => {

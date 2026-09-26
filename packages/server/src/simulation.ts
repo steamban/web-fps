@@ -8,8 +8,10 @@ import {
   type PlayerId,
   type ServerMessage,
   type SnapshotPlayer,
+  type SpawnPoint,
   spawnState,
   stepMovement,
+  type Vec3,
   type WeaponSlot,
   wrapAngle,
 } from "@web-fps/shared";
@@ -52,6 +54,9 @@ export interface PlayerSimState {
    *  kill limit and the scoreboard rather than recounting them from anywhere else. */
   readonly score: number;
   readonly deaths: number;
+  /** Tick this player comes back at, or null while they are alive. Counted from the tick
+   *  the killing blow landed on, so a respawn is the configured delay and not a tick more. */
+  readonly respawnAtTick: number | null;
   /** Earliest tick this player may fire again. One clock for all three weapons, so
    *  switching slots cannot be used to shoot faster than either of them allows. */
   readonly nextFireTick: number;
@@ -130,6 +135,7 @@ export function createGame(
         health: MAX_HEALTH,
         score: 0,
         deaths: 0,
+        respawnAtTick: null,
         nextFireTick: 0,
       };
     }),
@@ -213,7 +219,68 @@ export function simulate(
     }),
   };
 
-  return resolveShots(moved, requested, dtMs);
+  return respawnDue(resolveShots(moved, requested, dtMs));
+}
+
+/**
+ * Where to put somebody who is coming back: the spawn furthest from the nearest player
+ * who could shoot them for it.
+ *
+ * Deterministic — no randomness anywhere in the simulation, so a replay of the same
+ * inputs is the same match — and it costs a pass over eight spawns. The alternative is
+ * the spawn they were seated at, which in a thirty-kill deathmatch on one small map is an
+ * invitation to stand on it. The ceiling: it knows where people are, not where they are
+ * looking, so it can still hand somebody a spawn with a rifle pointed at it from across
+ * the map.
+ */
+function spawnFurthestFromDanger(state: GameState, playerId: PlayerId): SpawnPoint {
+  const threats = state.players.filter((player) => player.id !== playerId && player.health > 0);
+
+  let best = state.map.spawns[0];
+  if (!best) throw new Error(`map ${state.map.name} has no spawn points`);
+  let bestDistance = Number.NEGATIVE_INFINITY;
+
+  for (const spawn of state.map.spawns) {
+    // Nothing to keep away from on an empty map: the first spawn wins, as it does on a tie.
+    let nearest = Number.POSITIVE_INFINITY;
+    for (const threat of threats) {
+      nearest = Math.min(nearest, squaredDistance(spawn.position, threat.movement.position));
+    }
+    if (nearest > bestDistance) {
+      best = spawn;
+      bestDistance = nearest;
+    }
+  }
+  return best;
+}
+
+const squaredDistance = (a: Vec3, b: Vec3): number =>
+  (a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2;
+
+/**
+ * Brings back everyone whose countdown has run out, one at a time: a player already
+ * returned this tick is somebody the next one keeps away from, which is what stops two
+ * players who died together landing on the same spawn.
+ */
+function respawnDue(state: GameState): GameState {
+  const isDue = (player: PlayerSimState): boolean =>
+    player.respawnAtTick !== null && state.tick >= player.respawnAtTick;
+  if (!state.players.some(isDue)) return state;
+
+  const players = [...state.players];
+  for (const [index, player] of players.entries()) {
+    if (!isDue(player)) continue;
+    const spawn = spawnFurthestFromDanger({ ...state, players }, player.id);
+    players[index] = {
+      ...player,
+      movement: spawnState(spawn),
+      yaw: spawn.yaw,
+      pitch: 0,
+      health: MAX_HEALTH,
+      respawnAtTick: null,
+    };
+  }
+  return { ...state, players };
 }
 
 /**
@@ -237,6 +304,7 @@ const snapshotOf = (player: PlayerSimState): SnapshotPlayer => ({
   alive: player.health > 0,
   score: player.score,
   deaths: player.deaths,
+  respawnAtTick: player.respawnAtTick,
   // Still a constant: nothing protects a spawn until M5 adds the timer that expires.
   spawnProtected: false,
 });

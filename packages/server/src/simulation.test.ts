@@ -4,6 +4,8 @@ import {
   MOVE_SPEED,
   type PlayerId,
   SANDBOX_MAP,
+  type SpawnPoint,
+  spawnState,
   stepMovement,
 } from "@web-fps/shared";
 import { describe, expect, it } from "vitest";
@@ -44,10 +46,24 @@ const RULES = roundRules(config);
 
 const gameOf = (...ids: PlayerId[]): GameState => createGame(SANDBOX_MAP, ids, RULES);
 
-/** Combat lands in the next commit; until then a corpse is made by hand. */
+/** A corpse as `resolveShots` would leave one: no health, and a countdown running. */
 const kill = (state: GameState, id: PlayerId): GameState => ({
   ...state,
-  players: state.players.map((player) => (player.id === id ? { ...player, health: 0 } : player)),
+  players: state.players.map((player) =>
+    player.id === id
+      ? { ...player, health: 0, respawnAtTick: state.tick + state.rules.respawnTicks }
+      : player,
+  ),
+});
+
+/** A player put somewhere other than the spawn they were seated at. */
+const standAt = (state: GameState, id: PlayerId, x: number, z: number): GameState => ({
+  ...state,
+  players: state.players.map((player) =>
+    player.id === id
+      ? { ...player, movement: { ...player.movement, position: { x, y: 0, z } } }
+      : player,
+  ),
 });
 
 const find = (state: GameState, id: PlayerId) => {
@@ -416,6 +432,71 @@ describe("matchStartFor", () => {
     const state = gameOf("p1", "p2");
     const spawns = state.players.map((player) => matchStartFor(state, config, player));
     expect(spawns[0]).not.toEqual(spawns[1]);
+  });
+});
+
+describe("respawning", () => {
+  const quick = roundRules(loadConfig({ RESPAWN_SECONDS: "0.1" }));
+  const twoSpawns = {
+    ...SANDBOX_MAP,
+    spawns: [SANDBOX_MAP.spawns[0], SANDBOX_MAP.spawns[1]].filter((spawn) => spawn !== undefined),
+  };
+
+  it("holds a player at zero health until the tick their death named", () => {
+    let state = kill(createGame(SANDBOX_MAP, ["p1", "p2"], quick), "p1");
+    expect(find(state, "p1").respawnAtTick).toBe(2);
+
+    state = simulate(state, [], DT);
+    expect(find(state, "p1")).toMatchObject({ health: 0, respawnAtTick: 2 });
+
+    state = simulate(state, [], DT);
+    expect(find(state, "p1")).toMatchObject({ health: MAX_HEALTH, respawnAtTick: null });
+  });
+
+  it("brings them back at a spawn, upright and unmoving", () => {
+    const dead = kill(createGame(SANDBOX_MAP, ["p1", "p2"], quick), "p1");
+    const back = find(simulate(simulate(dead, [], DT), [], DT), "p1");
+    const spawn = SANDBOX_MAP.spawns.find(
+      (candidate) =>
+        candidate.position.x === back.movement.position.x &&
+        candidate.position.z === back.movement.position.z,
+    );
+
+    expect(spawn).toBeDefined();
+    expect(back.movement).toEqual(spawnState(spawn as SpawnPoint));
+    expect(back.yaw).toBe(spawn?.yaw);
+  });
+
+  it("picks the spawn furthest from whoever is still alive", () => {
+    // p2 is standing on p1's own spawn — the camp this rule exists to answer. p1 comes
+    // back at the other end of the map instead of under their feet.
+    const camped = standAt(kill(createGame(twoSpawns, ["p1", "p2"], quick), "p1"), "p2", -18, -18);
+    const back = find(simulate(simulate(camped, [], DT), [], DT), "p1");
+
+    expect(back.movement.position).toEqual(twoSpawns.spawns[1]?.position);
+  });
+
+  it("does not put two players who died together on the same spawn", () => {
+    // Resolved one at a time: whoever came back first is somebody the next one keeps away
+    // from. Taken as one pass, both would read the same danger and land in the same place.
+    let state = createGame(twoSpawns, ["p1", "p2", "p3"], quick);
+    state = kill(kill(standAt(state, "p1", 0, 0), "p2"), "p3");
+    const back = simulate(simulate(state, [], DT), [], DT);
+
+    expect(find(back, "p2").movement.position).not.toEqual(find(back, "p3").movement.position);
+  });
+
+  it("keeps what they had scored and what it had cost them", () => {
+    const dead = kill(createGame(SANDBOX_MAP, ["p1", "p2"], quick), "p1");
+    const state: GameState = {
+      ...dead,
+      players: dead.players.map((player) =>
+        player.id === "p1" ? { ...player, score: 3, deaths: 2 } : player,
+      ),
+    };
+    const back = find(simulate(simulate(state, [], DT), [], DT), "p1");
+
+    expect(back).toMatchObject({ score: 3, deaths: 2 });
   });
 });
 

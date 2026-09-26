@@ -135,11 +135,15 @@ export function resolveShots(
       if (!blow && ready === undefined && scored === 0) return player;
 
       const health = blow ? Math.max(0, player.health - blow.damage) : player.health;
+      const killed = health === 0 && player.health > 0;
       return {
         ...player,
         health,
         score: player.score + scored,
-        deaths: player.deaths + (health === 0 && player.health > 0 ? 1 : 0),
+        deaths: player.deaths + (killed ? 1 : 0),
+        // Counted from the tick the blow landed on. The countdown is the whole of what a
+        // death is in v1: nothing else is remembered about it until M6 wants a killfeed.
+        respawnAtTick: killed ? state.tick + state.rules.respawnTicks : player.respawnAtTick,
         nextFireTick: ready ?? player.nextFireTick,
       };
     }),

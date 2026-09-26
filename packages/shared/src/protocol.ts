@@ -12,7 +12,7 @@ import { WEAPON_SLOTS } from "./weapons";
  */
 
 /** Bumped on any incompatible wire change; mismatched clients are rejected at `join`. */
-export const PROTOCOL_VERSION = 3 as const;
+export const PROTOCOL_VERSION = 4 as const;
 
 /** Path the WebSocket endpoint is mounted at. Both sides read it from here so it cannot drift. */
 export const WS_PATH = "/ws";
@@ -160,6 +160,13 @@ export const SnapshotPlayerSchema = z.object({
   health: z.number().int().nonnegative(),
   alive: z.boolean(),
   spawnProtected: z.boolean(),
+  /**
+   * Tick this player comes back at, or null while they are alive. The snapshot already
+   * carries the tick it was taken at, so a client subtracts the two for the countdown on
+   * screen — no separate `death` frame has to arrive, or arrive in order, for the number
+   * to be right.
+   */
+  respawnAtTick: z.number().int().nonnegative().nullable(),
   score: z.number().int().nonnegative(),
   deaths: z.number().int().nonnegative(),
 });

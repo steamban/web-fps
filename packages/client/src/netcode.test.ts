@@ -37,6 +37,7 @@ const snapshotPlayer = (over: Partial<SnapshotPlayer> = {}): SnapshotPlayer => (
   health: 100,
   alive: true,
   spawnProtected: false,
+  respawnAtTick: null,
   score: 0,
   deaths: 0,
   ...over,

@@ -305,6 +305,7 @@ describe("entering a match", () => {
       health: alive ? 100 : 0,
       alive,
       spawnProtected: false,
+      respawnAtTick: alive ? null : 105,
       score: 0,
       deaths: alive ? 0 : 1,
     });

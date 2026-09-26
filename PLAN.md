@@ -533,6 +533,23 @@ exists, the condition that would reverse it.
   well, because a match that ends before it has stepped has no state to end from and
   `matchStart.timeLimitMs` is a positive integer on the wire.
 
+- **A death is a countdown on the player, carried on the snapshot, and nothing else.**
+  `respawnAtTick` rides `SnapshotPlayer` beside the health it follows from, so the
+  number on screen is right whether or not any other frame arrived — where a `death`
+  message would have to arrive, and arrive in order, for the same countdown. It also
+  keeps `simulate` a `GameState -> GameState` fold for one more milestone: M4 flagged
+  `{ state, events }` as due at "M5 or M6", and the thing that actually needs it is the
+  killfeed's *who killed whom*, which is M6. `death` and `respawn` stay defined and
+  unsent until then.
+- **A respawn goes to the spawn furthest from the nearest living player, resolved one
+  player at a time.** Sending everyone back to the seat they started at is an invitation
+  to stand on it for the rest of a thirty-kill match; picking at random is not available,
+  because the simulation has no randomness in it and a replay has to be the same match.
+  The fold is sequential so that a player already returned this tick is danger the next
+  one keeps away from — taken as one pass, two people who died together would read the
+  same world and land on the same spawn. The ceiling: it knows where people are, not
+  where they are aiming, so it can still open you in front of a rifle across the map.
+
 ## Technical details
 
 Finer-grained practices worth locking in now, since they're much cheaper to follow from M0 than to retrofit after M3.
