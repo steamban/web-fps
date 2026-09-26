@@ -6,15 +6,20 @@ Full design and milestone breakdown: [PLAN.md](./PLAN.md).
 
 ## Status
 
-**M4 — Combat.** Start a match and you can shoot each other. Every player carries the
-same three weapons; the server raycasts each shot from where that tick left the shooter,
-against the other players' hitboxes and through the map's geometry, and takes the health
-off. A player at zero health stops moving and stops being drawn.
+**M5 — Round flow.** A match is now a round that plays itself out. Every player carries
+the same three weapons; the server raycasts each shot from where that tick left the
+shooter, against the other players' hitboxes and through the map's geometry, and takes
+the health off. A player at zero health drops out of the world for
+`RESPAWN_SECONDS` and comes back at the spawn furthest from anyone still alive, briefly
+unshootable — until they fire, which gives that up. The round ends at `KILL_LIMIT` kills
+or `TIME_LIMIT_MINUTES` on the clock, whichever comes first; everyone gets the
+scoreboard, and `INTERMISSION_SECONDS` later the next round starts on the same map with
+whoever is still connected.
 
-Not built yet: respawn, spawn protection, the win condition and the scoreboard (M5), so a
-match effectively ends at the first kill; and no HUD — health, ammo, crosshair, killfeed
-or hit marker (M6). Ammo and reloading do not exist yet either: the weapons' fire rates
-bound how fast you can shoot, and nothing runs dry.
+Not built yet: the HUD — health, ammo, crosshair, killfeed, hit marker and the match
+clock (M6). Ammo and reloading do not exist either: the weapons' fire rates bound how
+fast you can shoot, and nothing runs dry. Nothing yet says who killed whom, so three
+hits inside one tick read as a single drop in health.
 
 ## Layout
 
@@ -74,6 +79,13 @@ as pure `(state, args) -> { state, effects }` transitions, and the match in
 with no clock and no sockets in it. [`net.ts`](./packages/server/src/net.ts) is the shell
 that owns both of those things and carries the effects out. That split is what lets every
 transition and every tick be proved by calling a function.
+
+The round flow is split the same way. `simulate` answers whether a match is over
+(`matchOutcome`) and what the scoreboard says (`matchEndMessage`) as questions about a
+state; `lobby.ts` owns the `ended` phase the scoreboard lives in; and `net.ts` owns the
+one thing neither can, the timer between one round and the next. The limits themselves
+are quantised into ticks once, at kickoff, and pinned onto the match — the simulation has
+no clock but its own tick counter, which is also why a paused match burns none of it.
 
 Combat follows the same split. [`combat.ts`](./packages/server/src/combat.ts) owns every
 rule a client must not decide — who is hittable, what a weapon reaches, what it costs and
