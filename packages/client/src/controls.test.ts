@@ -179,6 +179,19 @@ describe("createControls", () => {
     expect(controls.look().yaw).toBeCloseTo(-50 * MOUSE_SENSITIVITY);
   });
 
+  it("points the view at a spawn without the mouse asking", () => {
+    // A respawn moves the player without them moving; the view has to follow it, folded
+    // onto one turn and levelled, or the first thing they see is the floor.
+    const target = canvas();
+    controls = createControls(target, 0);
+    lockTo(target);
+    moveMouse(0, -400);
+
+    controls.faceSpawn(Math.PI * 3);
+    expect(controls.look().yaw).toBeCloseTo(Math.PI);
+    expect(controls.look().pitch).toBe(0);
+  });
+
   it("stops listening once disposed", () => {
     const target = canvas();
     controls = createControls(target, 0);

@@ -3,10 +3,13 @@ import {
   decodeServerMessage,
   encodeMessage,
   type KickReason,
+  type MatchEndReason,
   PlayerNameSchema,
   PROTOCOL_VERSION,
   SANDBOX_MAP,
+  type ScoreEntry,
   type ServerMessage,
+  type SnapshotPlayer,
 } from "@web-fps/shared";
 import { type Game, startGame } from "./game";
 import { startSandbox } from "./sandbox";
@@ -26,6 +29,7 @@ import { toWebSocketUrl } from "./serverUrl";
 
 type LobbyState = Extract<ServerMessage, { type: "lobbyState" }>;
 type MatchStart = Extract<ServerMessage, { type: "matchStart" }>;
+type MatchEnd = Extract<ServerMessage, { type: "matchEnd" }>;
 
 const el = <T extends HTMLElement>(id: string): T => {
   const node = document.getElementById(id);
@@ -49,6 +53,17 @@ const ui = {
   game: el("game"),
   view: el<HTMLCanvasElement>("view"),
   dead: el("dead"),
+  protected: el("protected"),
+  scoreboard: el("scoreboard"),
+  scoreboardReason: el("scoreboard-reason"),
+  scores: el("scores"),
+  nextRound: el("next-round"),
+};
+
+const END_TEXT: Record<MatchEndReason, string> = {
+  killLimit: "Kill limit reached",
+  timeLimit: "Time is up",
+  closed: "Match closed",
 };
 
 const KICK_TEXT: Record<KickReason, string> = {
@@ -63,6 +78,8 @@ const KICK_TEXT: Record<KickReason, string> = {
 let socket: WebSocket | null = null;
 let current: LobbyState | null = null;
 let match: Game | null = null;
+/** From the last `matchStart`: what turns a countdown in ticks into one in seconds. */
+let tickRateHz = 0;
 /** Set when the server names a reason, so the close handler does not overwrite it. */
 let farewell: string | null = null;
 
@@ -84,7 +101,7 @@ function describePhase(state: LobbyState): string {
     case "paused":
       return `Paused by the host — ${seats} players`;
     case "ended":
-      return `Match over — ${seats} players`;
+      return `Scoreboard — ${seats} players, next match shortly`;
   }
 }
 
@@ -139,6 +156,8 @@ function enterMatch(message: MatchStart): void {
   match?.dispose();
 
   ui.game.hidden = false;
+  ui.scoreboard.hidden = true;
+  tickRateHz = message.tickRateHz;
   match = startGame({
     canvas: ui.view,
     map: message.map,
@@ -151,6 +170,48 @@ function enterMatch(message: MatchStart): void {
   });
 }
 
+/**
+ * What the round flow has to say to the player it is happening to. Both come off the
+ * snapshot rather than off a frame of their own, so they are right on the first one that
+ * arrives and cannot be left stale by a message that went missing.
+ */
+function renderSelf(self: SnapshotPlayer | undefined, tick: number): void {
+  ui.dead.hidden = self?.alive !== false;
+  ui.protected.hidden = self?.spawnProtected !== true;
+
+  if (self && !self.alive && self.respawnAtTick !== null && tickRateHz > 0) {
+    // Rounded up, so the last second on screen is a second the player is still waiting.
+    const seconds = Math.max(0, Math.ceil((self.respawnAtTick - tick) / tickRateHz));
+    ui.dead.textContent = `Eliminated — back in ${seconds}`;
+  }
+}
+
+function scoreRow(entry: ScoreEntry): HTMLLIElement {
+  const row = document.createElement("li");
+  if (entry.id === current?.selfId) row.className = "self";
+
+  const name = document.createElement("span");
+  name.textContent = entry.name;
+  const kills = document.createElement("b");
+  kills.textContent = `${entry.score} k`;
+  const deaths = document.createElement("b");
+  deaths.textContent = `${entry.deaths} d`;
+  row.append(name, kills, deaths);
+  return row;
+}
+
+/** The scoreboard stays up until the next `matchStart` replaces it. */
+function showScoreboard(message: MatchEnd): void {
+  ui.dead.hidden = true;
+  ui.protected.hidden = true;
+  ui.scoreboard.hidden = false;
+  ui.scoreboardReason.textContent = END_TEXT[message.reason];
+  ui.scores.replaceChildren(...message.scores.map(scoreRow));
+  ui.nextRound.textContent = "The next match starts shortly.";
+  // The host's Close sits over the view, and the board is worth reading with a cursor.
+  document.exitPointerLock?.();
+}
+
 function showJoinScreen(message: string): void {
   socket = null;
   current = null;
@@ -161,6 +222,8 @@ function showJoinScreen(message: string): void {
   match = null;
   ui.game.hidden = true;
   ui.dead.hidden = true;
+  ui.protected.hidden = true;
+  ui.scoreboard.hidden = true;
   ui.lobby.hidden = true;
   ui.form.hidden = false;
   ui.status.textContent = message;
@@ -242,12 +305,15 @@ ui.form.addEventListener("submit", (event) => {
         break;
       case "snapshot": {
         match?.snapshot(message);
-        // The one piece of combat feedback M4 has. Everything richer — health, the
-        // killfeed, a hit marker — is M6's HUD, and the respawn it counts down to is M5's.
-        const self = message.players.find((player) => player.id === current?.selfId);
-        ui.dead.hidden = self?.alive !== false;
+        renderSelf(
+          message.players.find((player) => player.id === current?.selfId),
+          message.tick,
+        );
         break;
       }
+      case "matchEnd":
+        showScoreboard(message);
+        break;
       case "kicked":
         // Explains a disconnect that is about to happen.
         farewell = KICK_TEXT[message.reason];

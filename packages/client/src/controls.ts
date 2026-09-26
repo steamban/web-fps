@@ -70,6 +70,14 @@ export interface Controls {
    * invisible in the held state, and a shot swallowed is worse than a jump swallowed.
    */
   fire(): WeaponSlot | null;
+  /**
+   * Point the view where the server has just put this player. Used on a respawn, which
+   * is the one time the world moves without the mouse having asked it to: the spawn yaws
+   * exist to turn a corner towards the middle, and a player who came back looking at the
+   * wall they died against would have to find the map again first. Pitch is levelled with
+   * it for the same reason.
+   */
+  faceSpawn(yaw: number): void;
   dispose(): void;
 }
 
@@ -165,6 +173,9 @@ export function createControls(canvas: HTMLElement, startYaw: number): Controls 
       return sample;
     },
     look: () => look,
+    faceSpawn: (yaw: number) => {
+      look = { yaw: wrapAngle(yaw), pitch: 0 };
+    },
     fire: () => {
       // The mouse can be handed back in the middle of a hold — Esc releases pointer lock
       // and no mouseup ever arrives — so the capture is rechecked here rather than trusted

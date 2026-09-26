@@ -604,6 +604,22 @@ exists, the condition that would reverse it.
   history against them, so the old one is disposed and a new one built — the same teardown
   a disconnect already does.
 
+- **The respawn countdown and the protection notice are read off the snapshot, not off a
+  frame of their own.** They are right on the first snapshot a client receives and cannot
+  be left stale by a message that went missing — which is the same argument that put
+  `respawnAtTick` on the snapshot in the first place. The countdown is rounded up, so the
+  last second on screen is a second the player is still waiting through.
+- **A respawn points the view at the spawn; nothing else ever moves it.** It is the one
+  moment the world moves without the mouse having asked it to, and the spawn yaws exist
+  to turn a corner towards the middle — a player who came back facing the wall they died
+  against would have to find the map before they could play. The yaw is taken from the
+  snapshot, which at that tick is the server's own, because a dead client has sent no
+  input to overwrite it with. Pitch is levelled with it.
+- **The scoreboard releases the mouse and sits under the host's controls.** Close is the
+  one thing a host may still want during an intermission, and a board worth reading is
+  worth reading with a cursor. The next `matchStart` takes it down, which is also what
+  rebuilds the view.
+
 ## Technical details
 
 Finer-grained practices worth locking in now, since they're much cheaper to follow from M0 than to retrofit after M3.

@@ -181,6 +181,10 @@ export function startGame(options: GameOptions): Game {
 
       const self = message.players.find((player) => player.id === selfId);
       if (!self) return;
+      // A respawn puts the player somewhere they did not walk to, facing the way that
+      // spawn faces. The snapshot's yaw is the server's, untouched by any input of theirs
+      // — they have sent none since they died.
+      if (self.alive && !alive) controls.faceSpawn(self.yaw);
       alive = self.alive;
 
       const corrected = reconcile(self, message.ackSeq, pending, map, stepMs);

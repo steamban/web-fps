@@ -291,7 +291,7 @@ describe("entering a match", () => {
     expect(game.dispose).not.toHaveBeenCalled();
   });
 
-  it("says so when the local player has been eliminated, and stops saying so", () => {
+  it("counts the local player down to their respawn, and stops when they are back", () => {
     const socket = joinedLobby();
     socket.deliver(matchStart());
 
@@ -313,12 +313,78 @@ describe("entering a match", () => {
     socket.deliver({ type: "snapshot", tick: 4, ackSeq: 1, players: [self(true)] });
     expect(el("dead").hidden).toBe(true);
 
+    // 100 ticks to go at 20 Hz is five seconds; rounded up, so the last second shown is
+    // one the player is still waiting through.
     socket.deliver({ type: "snapshot", tick: 5, ackSeq: 1, players: [self(false)] });
     expect(el("dead").hidden).toBe(false);
+    expect(el("dead").textContent).toBe("Eliminated — back in 5");
 
-    // M5 respawns them; the banner has to go when it does.
-    socket.deliver({ type: "snapshot", tick: 6, ackSeq: 1, players: [self(true)] });
+    socket.deliver({ type: "snapshot", tick: 84, ackSeq: 1, players: [self(false)] });
+    expect(el("dead").textContent).toBe("Eliminated — back in 2");
+
+    socket.deliver({ type: "snapshot", tick: 105, ackSeq: 1, players: [self(true)] });
     expect(el("dead").hidden).toBe(true);
+  });
+
+  it("says when the local player cannot be shot", () => {
+    const socket = joinedLobby();
+    socket.deliver(matchStart());
+    const self = (spawnProtected: boolean) => ({
+      id: "h",
+      position: { x: 0, y: 0, z: 0 },
+      yaw: 0,
+      pitch: 0,
+      velocityY: 0,
+      grounded: true,
+      health: 100,
+      alive: true,
+      spawnProtected,
+      respawnAtTick: null,
+      score: 0,
+      deaths: 0,
+    });
+
+    socket.deliver({ type: "snapshot", tick: 1, ackSeq: 0, players: [self(true)] });
+    expect(el("protected").hidden).toBe(false);
+
+    socket.deliver({ type: "snapshot", tick: 101, ackSeq: 0, players: [self(false)] });
+    expect(el("protected").hidden).toBe(true);
+  });
+
+  it("puts the scoreboard up at the end of a round and takes it down at the next one", () => {
+    const socket = joinedLobby();
+    socket.deliver(matchStart());
+    socket.deliver({
+      type: "matchEnd",
+      reason: "killLimit",
+      scores: [
+        { id: "g", name: "bob", score: 30, deaths: 12 },
+        { id: "h", name: "arvind", score: 11, deaths: 30 },
+      ],
+    });
+
+    expect(el("scoreboard").hidden).toBe(false);
+    expect(el("scoreboard-reason").textContent).toBe("Kill limit reached");
+    // Server order, not re-sorted here: one definition of who won, and it is not this one.
+    expect([...el("scores").children].map((row) => row.textContent)).toEqual([
+      "bob30 k12 d",
+      "arvind11 k30 d",
+    ]);
+    // The local player is marked so a full lobby can be read at a glance.
+    expect(el("scores").querySelectorAll(".self")).toHaveLength(1);
+
+    socket.deliver(matchStart({ tick: 0 }));
+    expect(el("scoreboard").hidden).toBe(true);
+  });
+
+  it("clears the scoreboard when the socket drops", () => {
+    const socket = joinedLobby();
+    socket.deliver(matchStart());
+    socket.deliver({ type: "matchEnd", reason: "timeLimit", scores: [] });
+    socket.close();
+
+    expect(el("scoreboard").hidden).toBe(true);
+    expect(el("join-form").hidden).toBe(false);
   });
 
   it("rebuilds the view for the next round rather than playing on in the old one", () => {

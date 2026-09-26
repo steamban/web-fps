@@ -96,7 +96,7 @@
         top: 12px;
         right: 12px;
         width: auto;
-        z-index: 1;
+        z-index: 2;
       }
       #host-controls button {
         flex: 1;
@@ -126,9 +126,11 @@
         height: 100%;
         cursor: crosshair;
       }
-      /* Death is M4's whole feedback: the body stops being drawn for everyone else and
-         the player it happened to is told, until M5's respawn timer takes over. */
-      #dead:not([hidden]) {
+      /* What the round flow has to say to the player it is happening to: a countdown
+         while they are waiting to come back, and a note while they cannot be shot. Never
+         both at once — a protected player is alive by definition. */
+      #dead:not([hidden]),
+      #protected:not([hidden]) {
         position: absolute;
         left: 50%;
         top: 42%;
@@ -138,6 +140,44 @@
         letter-spacing: 0.18em;
         text-transform: uppercase;
         color: #e2828f;
+        white-space: nowrap;
+      }
+      #protected:not([hidden]) {
+        top: auto;
+        bottom: 56px;
+        font-size: 1rem;
+        color: #6fb2e2;
+      }
+      /* Over the frozen view, and clear of the host's controls — which stay on top of it,
+         because Close is the one thing a host may still want during an intermission. */
+      #scoreboard:not([hidden]) {
+        position: fixed;
+        left: 50%;
+        top: 12%;
+        transform: translateX(-50%);
+        width: min(420px, 100% - 32px);
+        padding: 16px;
+        border-radius: 8px;
+        background: #14161aee;
+      }
+      #scoreboard h2 {
+        margin: 0 0 12px;
+        font-size: 0.85rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #8d949c;
+      }
+      #scores b {
+        width: 3.5em;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      #scores .self {
+        outline: 1px solid #2f6fd0;
+      }
+      #next-round {
+        margin: 12px 0 0;
+        color: #8d949c;
       }
       #hint {
         position: absolute;
@@ -179,9 +219,16 @@
 
       <p id="status"></p>
 
+      <section id="scoreboard" hidden>
+        <h2 id="scoreboard-reason"></h2>
+        <ul id="scores"></ul>
+        <p id="next-round"></p>
+      </section>
+
       <section id="game" hidden>
         <canvas id="view"></canvas>
         <p id="dead" hidden>Eliminated</p>
+        <p id="protected" hidden>Spawn protected</p>
         <p id="hint">
           Click to look around &middot; WASD to move &middot; Space to jump &middot; Click to
           fire &middot; 1 2 3 to switch weapon &middot; Esc to release the mouse &middot;
