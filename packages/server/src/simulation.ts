@@ -4,8 +4,10 @@ import {
   type InputKeys,
   MAX_HEALTH,
   type MapData,
+  type MatchEndReason,
   type MovementState,
   type PlayerId,
+  type ScoreEntry,
   type ServerMessage,
   type SnapshotPlayer,
   type SpawnPoint,
@@ -289,6 +291,46 @@ function respawnDue(state: GameState): GameState {
     };
   }
   return { ...state, players };
+}
+
+/**
+ * Why this match is over, or null while it is not. Read after a tick by the shell that
+ * owns the clock — the rules it compares against were pinned at kickoff, so this is a
+ * question about a state and nothing else.
+ *
+ * The kill limit is asked first: if the tick that took somebody to it is also the tick
+ * the clock ran out on, "somebody got there" is the truer answer of the two, and it is
+ * the one the scoreboard is about to show.
+ */
+export function matchOutcome(state: GameState): MatchEndReason | null {
+  if (state.players.some((player) => player.score >= state.rules.killLimit)) return "killLimit";
+  if (state.tick >= state.rules.timeLimitTicks) return "timeLimit";
+  return null;
+}
+
+/**
+ * The final scoreboard, best first. Sorted here rather than on arrival so that every
+ * client shows the same order and the tie-break is decided once: most kills, then fewest
+ * deaths, then by id — which is arbitrary but total, and a stable order is worth more
+ * than a fair one between two players with identical lines.
+ *
+ * Anyone the lobby no longer has a name for has left mid-match and is left off.
+ */
+export function matchEndMessage(
+  state: GameState,
+  reason: MatchEndReason,
+  names: ReadonlyMap<PlayerId, string>,
+): ServerMessage {
+  const scores: ScoreEntry[] = state.players.flatMap((player) => {
+    const name = names.get(player.id);
+    return name === undefined
+      ? []
+      : [{ id: player.id, name, score: player.score, deaths: player.deaths }];
+  });
+  scores.sort(
+    (a, b) => b.score - a.score || a.deaths - b.deaths || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
+  return { type: "matchEnd", reason, scores };
 }
 
 /**

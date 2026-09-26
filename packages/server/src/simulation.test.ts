@@ -13,6 +13,8 @@ import { loadConfig } from "./config";
 import {
   createGame,
   type GameState,
+  matchEndMessage,
+  matchOutcome,
   matchStartFor,
   type PlayerInput,
   retainPlayers,
@@ -559,6 +561,97 @@ describe("spawn protection", () => {
     const back = simulate(simulate(dead, [], DT), [], DT);
 
     expect(snapshotOf(back, "p1")).toMatchObject({ health: MAX_HEALTH, spawnProtected: true });
+  });
+});
+
+describe("matchOutcome", () => {
+  const scored = (state: GameState, id: PlayerId, score: number): GameState => ({
+    ...state,
+    players: state.players.map((player) => (player.id === id ? { ...player, score } : player)),
+  });
+  const short = roundRules(loadConfig({ KILL_LIMIT: "3", TIME_LIMIT_MINUTES: "0.1" }));
+  const match = () => createGame(SANDBOX_MAP, ["p1", "p2"], short);
+
+  it("is not over while both limits are still ahead", () => {
+    expect(matchOutcome(match())).toBeNull();
+    expect(matchOutcome(scored(match(), "p1", 2))).toBeNull();
+  });
+
+  it("ends on the kill limit", () => {
+    // The milestone's own test (PLAN.md M5), half one: the score alone ends it.
+    expect(matchOutcome(scored(match(), "p2", 3))).toBe("killLimit");
+  });
+
+  it("ends on the clock", () => {
+    // Half two: the clock alone ends it, with nobody having scored at all.
+    const timeUp: GameState = { ...match(), tick: short.timeLimitTicks };
+
+    expect(matchOutcome(timeUp)).toBe("timeLimit");
+    expect(matchOutcome({ ...timeUp, tick: short.timeLimitTicks - 1 })).toBeNull();
+  });
+
+  it("calls the last kill the reason when both land on the same tick", () => {
+    const both: GameState = { ...scored(match(), "p1", 3), tick: short.timeLimitTicks };
+    expect(matchOutcome(both)).toBe("killLimit");
+  });
+
+  it("does not run the clock while the match is paused", () => {
+    // Nothing to implement: the tick is the clock, and a paused match is not stepped. The
+    // test is here because "the clock kept running through the pause" is what it would
+    // look like if that ever stopped being true.
+    let state = match();
+    for (let seq = 1; seq <= 5; seq += 1) state = simulate(state, [input("p1", seq)], DT);
+    const stalled = state;
+
+    expect(stalled.tick).toBe(5);
+    expect(matchOutcome(stalled)).toBeNull();
+  });
+});
+
+describe("matchEndMessage", () => {
+  const names = new Map([
+    ["p1", "arvind"],
+    ["p2", "bob"],
+    ["p3", "chris"],
+  ]);
+  const withLines = (...lines: Array<[PlayerId, number, number]>): GameState => {
+    const state = gameOf(...lines.map(([id]) => id));
+    return {
+      ...state,
+      players: state.players.map((player, index) => ({
+        ...player,
+        score: lines[index]?.[1] ?? 0,
+        deaths: lines[index]?.[2] ?? 0,
+      })),
+    };
+  };
+
+  it("puts the best score first and breaks a tie on fewest deaths", () => {
+    const message = matchEndMessage(
+      withLines(["p1", 4, 9], ["p2", 9, 3], ["p3", 4, 2]),
+      "killLimit",
+      names,
+    );
+
+    expect(message).toEqual({
+      type: "matchEnd",
+      reason: "killLimit",
+      scores: [
+        { id: "p2", name: "bob", score: 9, deaths: 3 },
+        { id: "p3", name: "chris", score: 4, deaths: 2 },
+        { id: "p1", name: "arvind", score: 4, deaths: 9 },
+      ],
+    });
+  });
+
+  it("leaves off anybody the lobby no longer has a name for", () => {
+    const message = matchEndMessage(
+      withLines(["p1", 1, 0], ["p2", 2, 0]),
+      "timeLimit",
+      new Map([["p2", "bob"]]),
+    );
+
+    expect(message.type === "matchEnd" && message.scores.map((entry) => entry.id)).toEqual(["p2"]);
   });
 });
 

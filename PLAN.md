@@ -566,6 +566,16 @@ exists, the condition that would reverse it.
   M4 gave for `alive`: two fields for one fact disagree the moment a write site updates
   one of them, and this one is on the wire where everybody would see it happen.
 
+- **Both limits are one question asked of the state after a tick, and the kill limit is
+  asked first.** The clock is the tick counter — there is no second clock to keep in step
+  with it — so a paused match burns none of it for free, and the tie between "somebody
+  reached the limit" and "the clock ran out" on the same tick resolves to the kill,
+  which is the truer account of what the scoreboard is about to show.
+- **The scoreboard is sorted by the server, once.** Most kills, then fewest deaths, then
+  by id: arbitrary between two identical lines but total, and every client showing the
+  same order is worth more than a fairer tie-break each of them computes separately.
+  Anybody the lobby no longer has a name for has left mid-match and is left off.
+
 ## Technical details
 
 Finer-grained practices worth locking in now, since they're much cheaper to follow from M0 than to retrofit after M3.
