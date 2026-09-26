@@ -156,6 +156,23 @@ describe("lerpAngle", () => {
 });
 
 describe("interpolatePlayers", () => {
+  it("draws a respawned player where they came back, not where they fell", () => {
+    // They are not anywhere in between: the previous snapshot has the body where it
+    // dropped, and the spawn is across the map.
+    const fell = snapshotPlayer({
+      id: "p2",
+      position: { x: 9, y: 0, z: 9 },
+      health: 0,
+      alive: false,
+      respawnAtTick: 100,
+    });
+    const back = snapshotPlayer({ id: "p2", position: { x: -18, y: 0, z: -18 } });
+
+    expect(interpolatePlayers([fell], [back], 0.5, "p1")).toEqual([
+      { id: "p2", position: back.position, yaw: 0 },
+    ]);
+  });
+
   const at = (id: string, x: number, yaw = 0) =>
     snapshotPlayer({ id, position: { x, y: 0, z: 0 }, yaw });
 

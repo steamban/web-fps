@@ -609,6 +609,11 @@ exists, the condition that would reverse it.
   be left stale by a message that went missing — which is the same argument that put
   `respawnAtTick` on the snapshot in the first place. The countdown is rounded up, so the
   last second on screen is a second the player is still waiting through.
+- **A player who was dead in the previous snapshot has nowhere to be interpolated from.**
+  `interpolatePlayers` filters the *latest* snapshot by `alive`, which is what stops a
+  corpse being drawn — but the previous one still holds the body where it dropped, so a
+  respawn walked it across the map to meet the spawn. Same case as a player's first
+  snapshot: draw them where the server put them.
 - **A respawn points the view at the spawn; nothing else ever moves it.** It is the one
   moment the world moves without the mouse having asked it to, and the spawn yaws exist
   to turn a corner towards the middle — a player who came back facing the wall they died

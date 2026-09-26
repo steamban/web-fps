@@ -115,8 +115,11 @@ export function interpolatePlayers(
     .filter((player) => player.id !== self && player.alive)
     .map((player) => {
       // Nowhere to come from on a player's first snapshot; drawing them where they are
-      // beats streaking them in from the map's origin.
-      const from = before.get(player.id) ?? player;
+      // beats streaking them in from the map's origin. A player who was dead in the
+      // previous one is the same case: they come back somewhere else entirely, and
+      // interpolating would walk the body across the map to meet them.
+      const previous = before.get(player.id);
+      const from = previous?.alive ? previous : player;
       return {
         id: player.id,
         position: lerpVec3(from.position, player.position, t),
