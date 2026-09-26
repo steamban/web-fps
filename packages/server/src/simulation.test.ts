@@ -43,8 +43,12 @@ const input = (playerId: PlayerId, seq: number, over: Partial<PlayerInput> = {})
 });
 
 const RULES = roundRules(config);
+/** Most of what is tested here is not about the opening seconds, and a protected player
+ *  cannot be shot — so the rules a shot is fired under are the ones with no protection
+ *  in them. `spawn protection` below uses the configured default. */
+const RULES_UNPROTECTED = roundRules(loadConfig({ SPAWN_PROTECTION_SECONDS: "0" }));
 
-const gameOf = (...ids: PlayerId[]): GameState => createGame(SANDBOX_MAP, ids, RULES);
+const gameOf = (...ids: PlayerId[]): GameState => createGame(SANDBOX_MAP, ids, RULES_UNPROTECTED);
 
 /** A corpse as `resolveShots` would leave one: no health, and a countdown running. */
 const kill = (state: GameState, id: PlayerId): GameState => ({
@@ -65,6 +69,14 @@ const standAt = (state: GameState, id: PlayerId, x: number, z: number): GameStat
       : player,
   ),
 });
+
+/** One player's line of a snapshot, which is where `spawnProtected` is derived. */
+const snapshotOf = (state: GameState, id: PlayerId) => {
+  const message = snapshotFor(state, id);
+  return message.type === "snapshot"
+    ? message.players.find((player) => player.id === id)
+    : undefined;
+};
 
 const find = (state: GameState, id: PlayerId) => {
   const player = state.players.find((candidate) => candidate.id === id);
@@ -497,6 +509,56 @@ describe("respawning", () => {
     const back = find(simulate(simulate(state, [], DT), [], DT), "p1");
 
     expect(back).toMatchObject({ score: 3, deaths: 2 });
+  });
+});
+
+describe("spawn protection", () => {
+  // Spawn 0 and spawn 1 are 36 m apart along a clear lane; yaw -pi/2 looks down it.
+  const brief = roundRules(loadConfig({ SPAWN_PROTECTION_SECONDS: "0.1", RESPAWN_SECONDS: "0.1" }));
+  const lane = () => createGame(SANDBOX_MAP, ["p1", "p2"], brief);
+  /** Spawn 0 shoots up the lane at yaw -pi/2; spawn 1 shoots back down it at +pi/2. */
+  const shot = (id: PlayerId, seq: number, yaw = -Math.PI / 2): PlayerInput =>
+    input(id, seq, { keys: RELEASED, yaw, fire: "primary" });
+
+  it("costs a fresh spawn nothing, and stops costing them nothing", () => {
+    // The milestone's own test (PLAN.md M5): protection expires and damage lands again.
+    const shielded = simulate(lane(), [shot("p1", 1)], DT);
+    expect(find(shielded, "p2").health).toBe(MAX_HEALTH);
+    expect(snapshotOf(shielded, "p2")).toMatchObject({ spawnProtected: true });
+
+    // Tick 2 is the last protected one; the cooldown means the next shot lands on 3.
+    let state = shielded;
+    for (const seq of [2, 3]) state = simulate(state, [shot("p1", seq)], DT);
+
+    expect(find(state, "p2").health).toBe(MAX_HEALTH - LOADOUT.primary.damage);
+    expect(snapshotOf(state, "p2")).toMatchObject({ spawnProtected: false });
+  });
+
+  it("is given up by firing, so it cannot be shot from behind", () => {
+    // p2 is protected until tick 2 but takes a shot of their own on tick 1, which p1's
+    // shot on the same tick therefore lands. Both are resolved against one frozen world.
+    const traded = simulate(lane(), [shot("p1", 1), shot("p2", 1, Math.PI / 2)], DT);
+
+    expect(find(traded, "p1").health).toBe(MAX_HEALTH - LOADOUT.primary.damage);
+    expect(find(traded, "p2").health).toBe(MAX_HEALTH - LOADOUT.primary.damage);
+    expect(snapshotOf(traded, "p1")).toMatchObject({ spawnProtected: false });
+  });
+
+  it("still leaves a protected player as something a bullet stops on", () => {
+    // p3 stands behind p2 on the same lane. Firing through a protected body would make
+    // spawn protection a window rather than a shield.
+    const three = createGame(SANDBOX_MAP, ["p1", "p2", "p3"], brief);
+    const behind = standAt(three, "p3", 18, -20);
+    const state = simulate(standAt(behind, "p2", 18, -18), [shot("p1", 1)], DT);
+
+    expect(find(state, "p3").health).toBe(MAX_HEALTH);
+  });
+
+  it("covers a respawn as well as a kickoff", () => {
+    const dead = kill(createGame(SANDBOX_MAP, ["p1", "p2"], brief), "p1");
+    const back = simulate(simulate(dead, [], DT), [], DT);
+
+    expect(snapshotOf(back, "p1")).toMatchObject({ health: MAX_HEALTH, spawnProtected: true });
   });
 });
 

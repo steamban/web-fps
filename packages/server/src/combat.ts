@@ -7,7 +7,7 @@ import {
   type Vec3,
   type WeaponSlot,
 } from "@web-fps/shared";
-import type { GameState, PlayerSimState } from "./simulation";
+import { type GameState, isSpawnProtected, type PlayerSimState } from "./simulation";
 
 /**
  * Hit resolution: who a shot reaches and what that costs them. Pure, like the rest of the
@@ -98,26 +98,39 @@ export function resolveShots(
 ): GameState {
   if (requested.size === 0) return state;
 
+  // Who actually pulls a trigger this tick, in player order rather than the order the
+  // requests arrived in, so the result is a function of the state alone. Collected before
+  // anything is resolved because firing is what gives up spawn protection: two protected
+  // players who shoot each other in the same tick have both given it up, and the trade
+  // has to land both ways or neither.
+  const firing = state.players.flatMap((shooter) => {
+    const shot = requested.get(shooter.id);
+    if (shot === undefined || shooter.health === 0 || state.tick < shooter.nextFireTick) return [];
+    return [{ shooter, shot }];
+  });
+  if (firing.length === 0) return state;
+
   const landed = new Map<PlayerId, Landed>();
   const reloaded = new Map<PlayerId, number>();
+  const unprotected = new Set(firing.map(({ shooter }) => shooter.id));
 
-  // Player order, never the order the requests arrived in, so the result is a function of
-  // the state alone.
-  for (const shooter of state.players) {
-    const shot = requested.get(shooter.id);
-    if (shot === undefined || shooter.health === 0 || state.tick < shooter.nextFireTick) continue;
+  for (const { shooter, shot } of firing) {
     // Spent on a miss as much as on a hit.
     reloaded.set(shooter.id, state.tick + fireCooldownTicks(shot.slot, dtMs));
 
     const targetId = traceShot(state, shooter, shot);
     if (targetId === null) continue;
+    // A protected player is still a body: the bullet stops on them, it just costs them
+    // nothing. Passing through would make them a window to shoot whoever stood behind.
+    const target = state.players.find((player) => player.id === targetId);
+    if (target && isSpawnProtected(target, state.tick) && !unprotected.has(targetId)) continue;
+
     const already = landed.get(targetId)?.damage ?? 0;
     landed.set(targetId, {
       damage: already + LOADOUT[shot.slot].damage,
       lastShooterId: shooter.id,
     });
   }
-  if (landed.size === 0 && reloaded.size === 0) return state;
 
   const kills = new Map<PlayerId, number>();
   for (const victim of state.players) {
@@ -132,7 +145,8 @@ export function resolveShots(
       const blow = landed.get(player.id);
       const ready = reloaded.get(player.id);
       const scored = kills.get(player.id) ?? 0;
-      if (!blow && ready === undefined && scored === 0) return player;
+      const gaveUp = unprotected.has(player.id) && player.protectedUntilTick !== 0;
+      if (!blow && ready === undefined && scored === 0 && !gaveUp) return player;
 
       const health = blow ? Math.max(0, player.health - blow.damage) : player.health;
       const killed = health === 0 && player.health > 0;
@@ -144,6 +158,9 @@ export function resolveShots(
         // Counted from the tick the blow landed on. The countdown is the whole of what a
         // death is in v1: nothing else is remembered about it until M6 wants a killfeed.
         respawnAtTick: killed ? state.tick + state.rules.respawnTicks : player.respawnAtTick,
+        // Protection is a moment to get your bearings in, not a licence to shoot from
+        // behind: taking a shot ends it, whether or not the shot hit anything.
+        protectedUntilTick: gaveUp ? 0 : player.protectedUntilTick,
         nextFireTick: ready ?? player.nextFireTick,
       };
     }),

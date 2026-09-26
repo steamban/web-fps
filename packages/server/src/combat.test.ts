@@ -45,6 +45,7 @@ const standing = (
   health: MAX_HEALTH,
   score: 0,
   deaths: 0,
+  protectedUntilTick: 0,
   respawnAtTick: null,
   nextFireTick: 0,
   ...over,

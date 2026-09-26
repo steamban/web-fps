@@ -399,7 +399,8 @@ describe("a running match", () => {
     // The whole path end to end: a trigger on an input frame, the authoritative hit, and
     // the health every client learns about from the next snapshot. Spawn 0 and spawn 1 sit
     // 36 m apart along a clear lane; yaw -pi/2 looks straight down it.
-    const url = await startServer();
+    // No spawn protection: this is about the ballistics, and a protected player is unhittable.
+    const url = await startServer(loadConfig({ SPAWN_PROTECTION_SECONDS: "0" }));
     const host = await join(url, "arvind");
     const guest = await join(url, "bob");
     await lobbyState(guest, (s) => s.players.length === 2);

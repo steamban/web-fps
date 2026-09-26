@@ -550,6 +550,22 @@ exists, the condition that would reverse it.
   same world and land on the same spawn. The ceiling: it knows where people are, not
   where they are aiming, so it can still open you in front of a rifle across the map.
 
+- **Spawn protection is granted at kickoff as well as at a respawn, and it is given up by
+  firing.** A match whose first five seconds are unprotected opens with a scramble the
+  fastest click wins, and a spawn is a spawn. Firing ends it because five seconds is long
+  enough to cross most of this map with a knife: without that, the dominant opening is to
+  run at somebody and stab them while invulnerable. Whoever fires is marked before any
+  shot is resolved, so two protected players who shoot each other on the same tick have
+  both given it up and the trade lands both ways — the frozen-world rule M4 settled,
+  restated where protection could have broken it.
+- **A protected player still stops a bullet.** They are a body you can see; a shot that
+  passed through them would make protection a window to shoot whoever is standing behind.
+  The body-block that allows is meaningless in a free-for-all with no teammates to block
+  for.
+- **`spawnProtected` is derived from `protectedUntilTick`, never stored**, for the reason
+  M4 gave for `alive`: two fields for one fact disagree the moment a write site updates
+  one of them, and this one is on the wire where everybody would see it happen.
+
 ## Technical details
 
 Finer-grained practices worth locking in now, since they're much cheaper to follow from M0 than to retrofit after M3.

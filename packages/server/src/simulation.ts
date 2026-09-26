@@ -54,6 +54,10 @@ export interface PlayerSimState {
    *  kill limit and the scoreboard rather than recounting them from anywhere else. */
   readonly score: number;
   readonly deaths: number;
+  /** Tick this player's spawn protection runs out; 0 once it has been given up or never
+   *  granted. Compared against the tick being played, so `spawnProtected` on the wire is
+   *  derived from it rather than stored twice. */
+  readonly protectedUntilTick: number;
   /** Tick this player comes back at, or null while they are alive. Counted from the tick
    *  the killing blow landed on, so a respawn is the configured delay and not a tick more. */
   readonly respawnAtTick: number | null;
@@ -135,6 +139,9 @@ export function createGame(
         health: MAX_HEALTH,
         score: 0,
         deaths: 0,
+        // A spawn is a spawn: the opening seconds of a match are protected for the same
+        // reason a respawn is, and the alternative is a scramble the fastest click wins.
+        protectedUntilTick: rules.protectionTicks,
         respawnAtTick: null,
         nextFireTick: 0,
       };
@@ -277,6 +284,7 @@ function respawnDue(state: GameState): GameState {
       yaw: spawn.yaw,
       pitch: 0,
       health: MAX_HEALTH,
+      protectedUntilTick: state.tick + state.rules.protectionTicks,
       respawnAtTick: null,
     };
   }
@@ -293,7 +301,7 @@ export function retainPlayers(state: GameState, ids: ReadonlySet<PlayerId>): Gam
   return players.length === state.players.length ? state : { ...state, players };
 }
 
-const snapshotOf = (player: PlayerSimState): SnapshotPlayer => ({
+const snapshotOf = (player: PlayerSimState, tick: number): SnapshotPlayer => ({
   id: player.id,
   position: player.movement.position,
   yaw: player.yaw,
@@ -305,9 +313,12 @@ const snapshotOf = (player: PlayerSimState): SnapshotPlayer => ({
   score: player.score,
   deaths: player.deaths,
   respawnAtTick: player.respawnAtTick,
-  // Still a constant: nothing protects a spawn until M5 adds the timer that expires.
-  spawnProtected: false,
+  spawnProtected: isSpawnProtected(player, tick),
 });
+
+/** Derived, never stored, for the reason `alive` is: one fact, one place it is decided. */
+export const isSpawnProtected = (player: PlayerSimState, tick: number): boolean =>
+  tick < player.protectedUntilTick;
 
 /**
  * The `snapshot` frame as one recipient should see it — per recipient because `ackSeq`
@@ -319,7 +330,7 @@ export function snapshotFor(state: GameState, recipientId: PlayerId): ServerMess
     type: "snapshot",
     tick: state.tick,
     ackSeq: recipient?.ackSeq ?? 0,
-    players: state.players.map(snapshotOf),
+    players: state.players.map((player) => snapshotOf(player, state.tick)),
   };
 }
 
