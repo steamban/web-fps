@@ -21,6 +21,7 @@ import {
   matchStartFor,
   type PlayerInput,
   retainPlayers,
+  roundRules,
   simulate,
   snapshotFor,
 } from "./simulation";
@@ -119,6 +120,7 @@ export function attachLobbyServer(httpServer: Server, config: Config): LobbyServ
     game = createGame(
       SANDBOX_MAP,
       state.members.map((member) => member.id),
+      roundRules(config),
     );
     // Per recipient, because each carries the spawn that player was actually seated at.
     for (const player of game.players) send(player.id, matchStartFor(game, config, player));

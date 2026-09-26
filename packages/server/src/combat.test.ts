@@ -10,7 +10,8 @@ import {
 } from "@web-fps/shared";
 import { describe, expect, it } from "vitest";
 import { fireCooldownTicks, resolveShots } from "./combat";
-import type { GameState, PlayerSimState } from "./simulation";
+import { loadConfig } from "./config";
+import { type GameState, type PlayerSimState, roundRules } from "./simulation";
 
 /**
  * PLAN.md's M4 test, and the reason the simulation is a pure reducer: a ray against known
@@ -51,6 +52,7 @@ const standing = (
 const game = (players: PlayerSimState[], map = arena(), tick = 4): GameState => ({
   tick,
   map,
+  rules: roundRules(loadConfig({})),
   players,
 });
 

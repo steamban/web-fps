@@ -14,6 +14,7 @@ import {
   matchStartFor,
   type PlayerInput,
   retainPlayers,
+  roundRules,
   simulate,
   snapshotFor,
 } from "./simulation";
@@ -39,7 +40,9 @@ const input = (playerId: PlayerId, seq: number, over: Partial<PlayerInput> = {})
   ...over,
 });
 
-const gameOf = (...ids: PlayerId[]): GameState => createGame(SANDBOX_MAP, ids);
+const RULES = roundRules(config);
+
+const gameOf = (...ids: PlayerId[]): GameState => createGame(SANDBOX_MAP, ids, RULES);
 
 /** Combat lands in the next commit; until then a corpse is made by hand. */
 const kill = (state: GameState, id: PlayerId): GameState => ({
@@ -81,7 +84,7 @@ describe("createGame", () => {
 
   it("wraps round to the first spawn if a map ever has fewer than the lobby seats", () => {
     const cramped = { ...SANDBOX_MAP, spawns: SANDBOX_MAP.spawns.slice(0, 2) };
-    const state = createGame(cramped, ["p1", "p2", "p3"]);
+    const state = createGame(cramped, ["p1", "p2", "p3"], RULES);
     expect(find(state, "p3").movement.position).toEqual(cramped.spawns[0]?.position);
   });
 });
@@ -398,10 +401,50 @@ describe("matchStartFor", () => {
     }
   });
 
+  it("quotes the quantised time limit, not the configured one", () => {
+    // 6.6 s at 7 Hz is 46.2 ticks, so the match actually runs 47 of them. A client
+    // counting down to the configured number would reach zero with the match still on.
+    const odd = loadConfig({ TICK_RATE_HZ: "7", TIME_LIMIT_MINUTES: "0.11" });
+    const state = createGame(SANDBOX_MAP, ["p1"], roundRules(odd));
+
+    for (const player of state.players) {
+      expect(matchStartFor(state, odd, player)).toMatchObject({ timeLimitMs: 6714 });
+    }
+  });
+
   it("gives two players different spawns", () => {
     const state = gameOf("p1", "p2");
     const spawns = state.players.map((player) => matchStartFor(state, config, player));
     expect(spawns[0]).not.toEqual(spawns[1]);
+  });
+});
+
+describe("roundRules", () => {
+  it("counts the configured limits in whole ticks", () => {
+    const rules = roundRules(loadConfig({}));
+
+    expect(rules).toEqual({
+      killLimit: 30,
+      timeLimitTicks: 600_000 / 50,
+      respawnTicks: 100,
+      protectionTicks: 100,
+    });
+  });
+
+  it("rounds a limit up rather than cutting it short", () => {
+    // 3 Hz: 5 s of respawn is 15 ticks, and 14 would hand the player back early.
+    const rules = roundRules(loadConfig({ TICK_RATE_HZ: "3" }));
+
+    expect(rules.respawnTicks).toBe(15);
+    expect(rules.protectionTicks).toBe(15);
+  });
+
+  it("leaves a match at least one tick to be played in", () => {
+    // `matchStart.timeLimitMs` is a positive integer on the wire, and a match that ends
+    // before it has stepped has no state to end from.
+    const rules = roundRules(loadConfig({ TIME_LIMIT_MINUTES: "0.0000001" }));
+
+    expect(rules.timeLimitTicks).toBe(1);
   });
 });
 

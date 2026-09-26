@@ -57,9 +57,42 @@ export interface PlayerSimState {
   readonly nextFireTick: number;
 }
 
+/**
+ * What ends a round and what happens in between, counted in the only unit the simulation
+ * has: ticks. Pinned into the state at match start for the same reason the spawns are —
+ * a round is played out under the rules it began under, and nothing downstream needs a
+ * `Config` to know whether it is over.
+ */
+export interface RoundRules {
+  readonly killLimit: number;
+  /** Ticks the match may run for. Only a stepped tick counts, so a pause burns no clock. */
+  readonly timeLimitTicks: number;
+  readonly respawnTicks: number;
+  readonly protectionTicks: number;
+}
+
+/**
+ * The configured milliseconds, quantised to the tick the simulation actually steps in.
+ *
+ * Rounded up, like `fireCooldownTicks`: a limit is a floor on what was asked for, so 5 s
+ * of protection at 3 Hz is 5.33 s rather than 4.67 s. The time limit is floored at one
+ * tick as well — a match that ends before it has stepped has no state to end from, and
+ * `matchStart.timeLimitMs` is a positive integer on the wire.
+ */
+export function roundRules(config: Config): RoundRules {
+  const ticks = (ms: number): number => Math.ceil(ms / config.tickIntervalMs);
+  return {
+    killLimit: config.killLimit,
+    timeLimitTicks: Math.max(1, ticks(config.timeLimitMs)),
+    respawnTicks: ticks(config.respawnMs),
+    protectionTicks: ticks(config.spawnProtectionMs),
+  };
+}
+
 export interface GameState {
   readonly tick: number;
   readonly map: MapData;
+  readonly rules: RoundRules;
   readonly players: readonly PlayerSimState[];
 }
 
@@ -76,10 +109,15 @@ const NO_KEYS: InputKeys = {
  * rather than recomputed from a position in the member list, because that list shifts the
  * moment somebody leaves — and everyone still playing would teleport with it.
  */
-export function createGame(map: MapData, playerIds: readonly PlayerId[]): GameState {
+export function createGame(
+  map: MapData,
+  playerIds: readonly PlayerId[],
+  rules: RoundRules,
+): GameState {
   return {
     tick: 0,
     map,
+    rules,
     players: playerIds.map((id, index) => {
       const spawn = map.spawns[index % map.spawns.length];
       if (!spawn) throw new Error(`map ${map.name} has no spawn points`);
@@ -227,8 +265,10 @@ export function matchStartFor(
     type: "matchStart",
     tick: state.tick,
     tickRateHz: config.tickRateHz,
-    killLimit: config.killLimit,
-    timeLimitMs: config.timeLimitMs,
+    killLimit: state.rules.killLimit,
+    // The quantised limit, not the configured one: it is what the match is actually run
+    // against, and a client counting down to a different number would be wrong on screen.
+    timeLimitMs: Math.round(state.rules.timeLimitTicks * config.tickIntervalMs),
     map: state.map,
     spawn: { position: player.movement.position, yaw: player.yaw },
   };

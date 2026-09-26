@@ -520,6 +520,19 @@ exists, the condition that would reverse it.
   down to nothing, and the right response is to start M5 rather than to playtest M4 at
   length.
 
+### M5 — Round flow
+
+- **A match's rules are pinned into its state at kickoff, counted in ticks.** The
+  simulation has no clock — a tick is the only unit it can compare against — and
+  `Config` is a server-boot concern that `simulate` deliberately does not take. Pinning
+  the four numbers is the same call M3 made for spawns: a round is played out under the
+  rules it began under, and every function that has to know whether the match is over
+  reads them off the state it was handed. Quantisation rounds *up*, like
+  `fireCooldownTicks`, so a limit is a floor on what was configured rather than a
+  number the tick rate is allowed to shave; the time limit is floored at one tick as
+  well, because a match that ends before it has stepped has no state to end from and
+  `matchStart.timeLimitMs` is a positive integer on the wire.
+
 ## Technical details
 
 Finer-grained practices worth locking in now, since they're much cheaper to follow from M0 than to retrofit after M3.
