@@ -563,7 +563,29 @@ describe("the end of a round", () => {
     expect(kicked.reason).toBe("matchInProgress");
   });
 
-  it("drops the pending restart when the host closes the lobby over the scoreboard", async () => {
+  it("drops a pending restart when the lobby empties over the scoreboard", async () => {
+    // A timer left over from a finished match fires into whatever phase the lobby is in
+    // when it comes round — and `ended` is a phase it reaches again. It would then cut a
+    // later match's scoreboard short by however long the first one had left to run.
+    const { url, host } = await playOut(withIntermission("1"));
+    host.close();
+    // Before joining, or the server may still have the emptied lobby on the scoreboard
+    // and refuse the newcomer as a latecomer.
+    await waitFor(() => (host.isClosed() ? true : undefined), "the host's disconnect");
+
+    const next = await join(url, "bob");
+    await lobbyState(next, (view) => view.phase === "waiting");
+    next.send({ type: "start" });
+    const starts = () => next.inbox.filter((m) => m.type === "matchStart");
+
+    await waitFor(() => next.inbox.find((m) => m.type === "matchEnd"), "the second scoreboard");
+    const shownAt = Date.now();
+    await waitFor(() => (starts().length > 1 ? starts().at(-1) : undefined), "the third match");
+
+    expect(Date.now() - shownAt).toBeGreaterThan(700);
+  });
+
+  it("does not restart a lobby the host closed over the scoreboard", async () => {
     const { url, host } = await playOut(withIntermission("0.1"));
     host.send({ type: "close" });
     await waitFor(() => (host.isClosed() ? true : undefined), "the host's disconnect");

@@ -547,11 +547,18 @@ describe("spawn protection", () => {
   });
 
   it("still leaves a protected player as something a bullet stops on", () => {
-    // p3 stands behind p2 on the same lane. Firing through a protected body would make
-    // spawn protection a window rather than a shield.
+    // p3 stands further up the same lane than p2, with no protection of their own, so
+    // the protected body in front is the only thing that can spare them. Firing through
+    // one would make spawn protection a window rather than a shield.
     const three = createGame(SANDBOX_MAP, ["p1", "p2", "p3"], brief);
-    const behind = standAt(three, "p3", 18, -20);
-    const state = simulate(standAt(behind, "p2", 18, -18), [shot("p1", 1)], DT);
+    const lined = standAt(standAt(three, "p2", 18, -18), "p3", 20, -18);
+    const exposed: GameState = {
+      ...lined,
+      players: lined.players.map((player) =>
+        player.id === "p3" ? { ...player, protectedUntilTick: 0 } : player,
+      ),
+    };
+    const state = simulate(exposed, [shot("p1", 1)], DT);
 
     expect(find(state, "p3").health).toBe(MAX_HEALTH);
   });
