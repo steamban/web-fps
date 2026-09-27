@@ -175,6 +175,9 @@ export function lobbyStateFor(
     // the client uses this to decide whether Start is available.
     minPlayers: config.isDevMode ? 1 : config.minPlayers,
     maxPlayers: config.maxPlayers,
+    // Reported the same way and for the same reason: what this client may do, never the
+    // mode that decided it.
+    debug: config.isDevMode,
     players: state.members.map((member) => ({
       id: member.id,
       name: member.name,

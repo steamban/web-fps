@@ -118,6 +118,7 @@ function lobbyState(over: Record<string, unknown> = {}): ServerMessage {
     selfId: "h",
     minPlayers: 2,
     maxPlayers: 8,
+    debug: false,
     players: [
       { id: "h", name: "arvind", isHost: true },
       { id: "g", name: "bob", isHost: false },

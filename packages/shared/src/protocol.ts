@@ -126,6 +126,12 @@ export const LobbyStateMessageSchema = z.object({
   selfId: PlayerIdSchema,
   minPlayers: z.number().int().positive(),
   maxPlayers: z.number().int().positive(),
+  /**
+   * Whether this server will back a debug overlay. The capability, not the mode that
+   * produced it — the same call `minPlayers` makes by reporting the *effective* minimum,
+   * so a client still need not know that game modes exist.
+   */
+  debug: z.boolean(),
   players: z.array(LobbyPlayerSchema),
 });
 

@@ -274,6 +274,7 @@ describe("lobbyStateFor", () => {
       selfId: "p2",
       minPlayers: 2,
       maxPlayers: 8,
+      debug: false,
       players: [
         { id: "p1", name: "player1", isHost: true },
         { id: "p2", name: "player2", isHost: false },
@@ -281,10 +282,11 @@ describe("lobbyStateFor", () => {
     });
   });
 
-  it("reports the minimum the host can actually start on in dev mode", () => {
+  it("reports the minimum the host can actually start on in dev mode, and the overlay", () => {
     expect(lobbyStateFor(lobbyOf(1, devConfig), devConfig, "p1")).toMatchObject({
       minPlayers: 1,
       maxPlayers: 8,
+      debug: true,
     });
   });
 

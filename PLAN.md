@@ -809,6 +809,16 @@ exists, the condition that would reverse it.
   "Reloading" is derived from a magazine at zero with rounds still in reserve, because
   that is the only thing it can mean once the server refills the moment its clock allows.
 
+- **The client learns it may debug from `lobbyState.debug`, a capability rather than a
+  mode.** M1 put the *effective* `minPlayers` on the same frame so that a client could gate
+  its own Start button without knowing that game modes exist; `debug` is the same call. It
+  rides `lobbyState` rather than `matchStart` because that arrives first, is re-sent on
+  every membership change, and is already per recipient. Rejected: a `?debug` query
+  parameter, which costs nothing on the wire and makes the overlay the *viewer's* setting
+  — PLAN.md gates it behind `GAME_MODE=dev`, which is the host's. Rejected too: inferring
+  dev mode from `minPlayers === 1`, since `MIN_PLAYERS=1` is legitimate configuration in
+  player mode and would hand the overlay to everybody on such a server.
+
 
 ## Technical details
 
