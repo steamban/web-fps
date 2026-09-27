@@ -6,20 +6,29 @@ Full design and milestone breakdown: [PLAN.md](./PLAN.md).
 
 ## Status
 
-**M5 — Round flow.** A match is now a round that plays itself out. Every player carries
-the same three weapons; the server raycasts each shot from where that tick left the
-shooter, against the other players' hitboxes and through the map's geometry, and takes
-the health off. A player at zero health drops out of the world for
-`RESPAWN_SECONDS` and comes back at the spawn furthest from anyone still alive, briefly
-unshootable — until they fire, which gives that up. The round ends at `KILL_LIMIT` kills
-or `TIME_LIMIT_MINUTES` on the clock, whichever comes first; everyone gets the
-scoreboard, and `INTERMISSION_SECONDS` later the next round starts on the same map with
-whoever is still connected.
+**M6 — HUD & feedback.** The match now tells you what is happening in it. A crosshair,
+health and the rounds left in the bottom corners, a killfeed in the top right, a marker
+on the crosshair when one of your shots lands, and the scores on Tab without leaving the
+round. Every weapon has a magazine, a reserve and a reload: a round leaves the magazine
+on each shot, the one that empties it starts the reload, and it is full again when the
+clock says so — a trigger pulled on an empty gun does nothing at all.
 
-Not built yet: the HUD — health, ammo, crosshair, killfeed, hit marker and the match
-clock (M6). Ammo and reloading do not exist either: the weapons' fire rates bound how
-fast you can shoot, and nothing runs dry. Nothing yet says who killed whom, so three
-hits inside one tick read as a single drop in health.
+The sound is synthesised rather than loaded, so the repo still ships no binary assets:
+gunshots, footsteps, a landing thud and a hit marker, with everybody else's placed where
+they are standing and your own heard flat and immediately.
+
+`GAME_MODE=dev` adds an overlay with the frame rate, the tick, the latency from an input
+leaving the client to the snapshot that acknowledges it, and a wireframe of the hitbox
+the server actually raycasts — which is axis-aligned, while the body you see is turned to
+face the way that player is looking.
+
+A round still plays itself out as M5 left it: the server raycasts each shot from where
+the tick left the shooter, a player at zero health comes back after `RESPAWN_SECONDS` at
+the spawn furthest from anyone alive and briefly unshootable, and the round ends at
+`KILL_LIMIT` kills or `TIME_LIMIT_MINUTES`, whichever comes first.
+
+There is no head hitbox and there will not be one in v1 — see the M6 design log for the
+arithmetic. Left for M7: a packaging pass on two real machines.
 
 ## Layout
 
@@ -67,7 +76,8 @@ else sees the player list. Open a second browser tab to play both sides — or s
 
 Once the host presses Start you are in the map: click to capture the mouse, WASD and
 Space to move, click to fire, 1, 2 and 3 to switch between the SMG, the pistol and the
-knife, Esc to release the mouse. The host keeps Pause and Close in the top-right corner.
+knife, Tab to see the scores, Esc to release the mouse. The host keeps Pause and Close in
+the top-right corner.
 
 **Movement sandbox** — the button under Join. It needs no server at all: it drops you into
 the map alone so the movement can be tuned without a network round trip in the way. Click
@@ -103,7 +113,15 @@ makes a prediction something the server can agree with rather than correct forev
 The client is split the same way: [`netcode.ts`](./packages/client/src/netcode.ts) is the
 reconciliation and interpolation maths, tested on its own, and
 [`game.ts`](./packages/client/src/game.ts) is the loop, the socket and the renderer around
-it.
+it. The HUD follows it: [`debug.ts`](./packages/client/src/debug.ts) and
+[`audio.ts`](./packages/client/src/audio.ts) hold the arithmetic that can be wrong quietly
+— a frame-rate window, a round trip, a footstep cadence, a fire-rate gate — and what those
+numbers look and sound like is verified by playing.
+
+A tick hands back the frames it produced as well as the state it left, which is how the
+killfeed learns who killed whom: `simulate` returns `{ state, events }` and `net.ts` routes
+them, the hit marker to the shooter alone, the kill to everybody, and a shot to everybody
+but the person who fired it.
 
 ## Development
 
@@ -144,4 +162,4 @@ Invalid values fail at boot with a message naming each offending variable.
 | `RESPAWN_SECONDS` | `5` | Death to respawn delay |
 | `SPAWN_PROTECTION_SECONDS` | `5` | Post-respawn invulnerability |
 | `INTERMISSION_SECONDS` | `10` | Scoreboard time between one match and the next |
-| `GAME_MODE` | `player` | `dev` adds a debug HUD, verbose logs and solo start |
+| `GAME_MODE` | `player` | `dev` adds the debug overlay, verbose logs and solo start |

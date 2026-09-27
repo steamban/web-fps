@@ -103,7 +103,9 @@ Client → Server: `join`, `input` (movement keys + look angle + the weapon fire
 
 `fire` was a message of its own in this sketch until M4 folded it into `input` — see the M4 design log for why.
 
-Server → Client: `lobbyState`, `matchStart`, `snapshot` (positions/health/etc, sent per tick), `hit`, `death`, `respawn`, `matchEnd`, `kicked`
+Server → Client: `lobbyState`, `matchStart`, `snapshot` (positions/health/etc, sent per tick), `shot`, `hit`, `death`, `matchEnd`, `kicked`
+
+`respawn` was in this sketch until M6 deleted it — the snapshot already carries everything it would have said — and `shot` was added in its place so that somebody else's gunfire can be heard. See the M6 design log.
 
 Tick rate: 20Hz server simulation to start — bump if movement feels choppy on LAN (latency is near-zero, so headroom is in CPU, not network).
 
