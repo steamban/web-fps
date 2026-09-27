@@ -10,6 +10,10 @@
  * Health a player spawns with, and what the damage numbers below are measured against.
  * A whole number, like every one of them: `SnapshotPlayer.health` is an integer on the
  * wire, and a fraction there would fail the schema for the entire snapshot.
+ *
+ * Nothing multiplies `damage` — there is no head hitbox in v1, so every hit costs the
+ * number written here and the wholeness of the table is the whole of the rounding rule.
+ * See the M6 design log before reintroducing a multiplier.
  */
 export const MAX_HEALTH = 100;
 
@@ -18,10 +22,8 @@ export type WeaponSlot = (typeof WEAPON_SLOTS)[number];
 
 export interface WeaponStats {
   readonly name: string;
-  /** Damage to an unprotected torso hit. */
+  /** Damage to an unprotected hit anywhere. The hitbox is one box; see the M6 log. */
   readonly damage: number;
-  /** Multiplier applied to `damage` on a head hitbox hit. */
-  readonly headshotMultiplier: number;
   /** Minimum milliseconds between shots. */
   readonly fireIntervalMs: number;
   /** Rounds per magazine, or `null` for weapons that never consume ammo (melee). */
@@ -37,7 +39,6 @@ export const LOADOUT: Readonly<Record<WeaponSlot, WeaponStats>> = {
   primary: {
     name: "SMG",
     damage: 22,
-    headshotMultiplier: 2,
     fireIntervalMs: 90,
     magazineSize: 30,
     reserveAmmo: 120,
@@ -47,7 +48,6 @@ export const LOADOUT: Readonly<Record<WeaponSlot, WeaponStats>> = {
   secondary: {
     name: "Pistol",
     damage: 30,
-    headshotMultiplier: 2.5,
     fireIntervalMs: 180,
     magazineSize: 12,
     reserveAmmo: 60,
@@ -57,7 +57,6 @@ export const LOADOUT: Readonly<Record<WeaponSlot, WeaponStats>> = {
   melee: {
     name: "Knife",
     damage: 55,
-    headshotMultiplier: 1,
     fireIntervalMs: 500,
     magazineSize: null,
     reserveAmmo: 0,

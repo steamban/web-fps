@@ -185,13 +185,21 @@ export const SnapshotMessageSchema = z.object({
   players: z.array(SnapshotPlayerSchema),
 });
 
+/**
+ * One shot that cost one player health, sent to the shooter alone: it is what a hit
+ * marker is drawn from, and with two people shooting at one target the snapshot's health
+ * drop says nothing about whose bullet did it.
+ *
+ * `remainingHealth` is what the target has left after *the whole tick* — shots are
+ * resolved against a frozen world, so there is no per-shot order to subtract in, and two
+ * shooters landing on one target this tick are both told the same number.
+ */
 export const HitMessageSchema = z.object({
   type: z.literal("hit"),
   shooterId: PlayerIdSchema,
   targetId: PlayerIdSchema,
   slot: WeaponSlotSchema,
   damage: z.number().int().nonnegative(),
-  headshot: z.boolean(),
   remainingHealth: z.number().int().nonnegative(),
 });
 

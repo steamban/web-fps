@@ -9,7 +9,6 @@ describe("LOADOUT", () => {
   it.each(WEAPON_SLOTS)("has sane numbers for %s", (slot) => {
     const weapon = LOADOUT[slot];
     expect(weapon.damage).toBeGreaterThan(0);
-    expect(weapon.headshotMultiplier).toBeGreaterThanOrEqual(1);
     expect(weapon.fireIntervalMs).toBeGreaterThan(0);
     expect(weapon.rangeMeters).toBeGreaterThan(0);
     expect(weapon.reserveAmmo).toBeGreaterThanOrEqual(0);
@@ -20,6 +19,7 @@ describe("LOADOUT", () => {
   it("keeps health and every damage value whole", () => {
     // Health travels as `z.number().int()`. A fraction anywhere in this table would reach
     // the wire, fail the snapshot schema, and drop the frame for every client at once.
+    // With no multiplier anywhere, this is the entire rounding rule.
     expect(Number.isInteger(MAX_HEALTH)).toBe(true);
     for (const slot of WEAPON_SLOTS) expect(Number.isInteger(LOADOUT[slot].damage)).toBe(true);
   });

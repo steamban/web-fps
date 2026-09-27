@@ -664,6 +664,34 @@ exists, the condition that would reverse it.
   schema with no producer and nothing for one to tell anybody. It has never been sent, so
   deleting it is not a wire change any build can notice. `hit` and `death`, the other two
   M4 left defined and unsent, are what this milestone brings to life.
+- **No head hitbox, and `headshotMultiplier` is deleted rather than deferred again.**
+  M4 held the question open for M6 on the grounds that it needs a hit marker to judge it
+  by. The marker is what M6 builds, and it turns out not to be the variable that decides
+  this. `aimDirection` is exact trig and a shot carries that ray verbatim, so with no
+  spread and no recoil a head volume is a *latch*, not a distribution: once the pitch is
+  in the band it stays there for the whole magazine, and a grounded target's box is
+  exactly 1.8 m tall every tick — so an engagement is all headshots or none. Each
+  candidate geometry then fails on its own terms. A band containing eye height (1.65 m)
+  makes `damage` the number that describes a *downward* miss. The 0.1 m band above it,
+  M4's own alternative, is 6 screen pixels at 10 m and under 3 at 25 m — thinner than the
+  mouse moves — and its top face would make every shot down from the 3 m platform a free
+  headshot across the target's whole footprint. A narrow head box centred on the body
+  shares the crosshair's own axis, so centre-mass aim *is* head aim. On top of that the
+  multiplier halves the SMG's time to kill and thirds the pistol's, doubling the share of
+  a match spent on the respawn screen. `HitMessage.headshot` goes with the field, because
+  a wire boolean pinned to `false` is worse dead data than an unused table entry.
+  **The rounding rule M4 promised is discharged by there being no multiplication left:**
+  every `damage` in the table is whole, `MAX_HEALTH` is whole, so `health` is whole by
+  construction and no `Math.round` exists to get wrong. If a multiplier ever returns,
+  round it **per shot**, never on the accumulated damage a target takes in one tick —
+  `HitMessage.damage` is an integer on the wire in its own right, and rounding the sum
+  would make the marker disagree with the health drop the snapshot shows.
+  **Reverses if any of these lands:** spread or recoil (already deferred to v2), a crouch
+  or stance that moves the eye relative to the box, or a player model with a visible head
+  — remotes are drawn as one featureless box today, and a damage multiplier on an unmarked
+  part of it is the most expensive thing to ship and the least visible. Any of the three
+  turns the latch back into a distribution or gives it something to aim at.
+
 
 ## Technical details
 
