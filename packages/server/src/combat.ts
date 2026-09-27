@@ -7,7 +7,12 @@ import {
   type Vec3,
   type WeaponSlot,
 } from "@web-fps/shared";
-import { type GameState, isSpawnProtected, type PlayerSimState } from "./simulation";
+import {
+  type GameState,
+  isSpawnProtected,
+  type PlayerSimState,
+  type SimResult,
+} from "./simulation";
 
 /**
  * Hit resolution: who a shot reaches and what that costs them. Pure, like the rest of the
@@ -95,8 +100,10 @@ export function resolveShots(
   state: GameState,
   requested: ReadonlyMap<PlayerId, Shot>,
   dtMs: number,
-): GameState {
-  if (requested.size === 0) return state;
+): SimResult {
+  // The same state object back, not a copy: a tick in which nothing was fired must not
+  // look like a change to anybody comparing states.
+  if (requested.size === 0) return { state, events: [] };
 
   // Who actually pulls a trigger this tick, in player order rather than the order the
   // requests arrived in, so the result is a function of the state alone. Collected before
@@ -108,7 +115,7 @@ export function resolveShots(
     if (shot === undefined || shooter.health === 0 || state.tick < shooter.nextFireTick) return [];
     return [{ shooter, shot }];
   });
-  if (firing.length === 0) return state;
+  if (firing.length === 0) return { state, events: [] };
 
   const landed = new Map<PlayerId, Landed>();
   const reloaded = new Map<PlayerId, number>();
@@ -139,7 +146,7 @@ export function resolveShots(
     kills.set(blow.lastShooterId, (kills.get(blow.lastShooterId) ?? 0) + 1);
   }
 
-  return {
+  const next: GameState = {
     ...state,
     players: state.players.map((player) => {
       const blow = landed.get(player.id);
@@ -165,4 +172,6 @@ export function resolveShots(
       };
     }),
   };
+
+  return { state: next, events: [] };
 }

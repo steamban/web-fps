@@ -107,6 +107,22 @@ export interface GameState {
   readonly players: readonly PlayerSimState[];
 }
 
+/**
+ * What a tick produced: the state it left behind, and the frames describing what happened
+ * inside it that no snapshot can carry — who shot, who hit whom, who died to whom.
+ *
+ * The shape `lobby.ts` returns, with one deliberate difference in the word: a lobby
+ * `effect` is an instruction to the transport, an `event` here is a fact. `simulate` never
+ * sends anything (PLAN.md "Side effects live only in the shell"); it hands `net.ts` frames
+ * and `net.ts` decides who they go to. They are `ServerMessage`s rather than a private
+ * event union because there is no consumer that wants anything else — a parallel type with
+ * a mapper would be one abstraction with one implementation.
+ */
+export interface SimResult {
+  readonly state: GameState;
+  readonly events: readonly ServerMessage[];
+}
+
 const NO_KEYS: InputKeys = {
   forward: false,
   back: false,
@@ -166,7 +182,7 @@ export function simulate(
   state: GameState,
   inputs: readonly PlayerInput[],
   dtMs: number,
-): GameState {
+): SimResult {
   // One shot per player per tick: no weapon's cooldown is shorter than a tick, so a burst
   // of frames could only ever land one of them anyway, and the last frame naming one wins.
   // The ray is captured here, from the frame that fired it — a later frame in the same tick
@@ -228,7 +244,10 @@ export function simulate(
     }),
   };
 
-  return respawnDue(resolveShots(moved, requested, dtMs));
+  const resolved = resolveShots(moved, requested, dtMs);
+  // A respawn is already on the wire as `respawnAtTick` counting down on the snapshot, so
+  // it produces no event of its own — see the M5 design log.
+  return { state: respawnDue(resolved.state), events: resolved.events };
 }
 
 /**

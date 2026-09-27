@@ -117,7 +117,8 @@ export function attachLobbyServer(httpServer: Server, config: Config): LobbyServ
       inputs.push(...queued.splice(0));
     }
 
-    game = simulate(game, inputs, config.tickIntervalMs);
+    const stepped = simulate(game, inputs, config.tickIntervalMs);
+    game = stepped.state;
     for (const player of game.players) send(player.id, snapshotFor(game, player.id));
 
     // Asked of the state the tick just produced, so the snapshot everyone has in hand is

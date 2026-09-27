@@ -69,6 +69,10 @@ const find = (state: GameState, id: PlayerId): PlayerSimState => {
  * frame — so a test hands over the same thing rather than a weapon alone.
  */
 const shot = (state: GameState, ...shooters: Array<[PlayerId, WeaponSlot]>) =>
+  fire(state, ...shooters).state;
+
+/** The same tick, kept whole, for the cases that read the events it produced. */
+const fire = (state: GameState, ...shooters: Array<[PlayerId, WeaponSlot]>) =>
   resolveShots(
     state,
     new Map(
@@ -248,7 +252,10 @@ describe("a shot", () => {
 
   it("changes nothing at all when nobody pulled a trigger", () => {
     const before = game([standing("p1", { x: 0, y: 0, z: 0 })]);
-    expect(resolveShots(before, new Map(), DT)).toBe(before);
+    const resolved = resolveShots(before, new Map(), DT);
+    // The same object, not an equal one: a tick nobody fired in has changed nothing.
+    expect(resolved.state).toBe(before);
+    expect(resolved.events).toEqual([]);
   });
 });
 

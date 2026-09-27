@@ -80,6 +80,12 @@ const snapshotOf = (state: GameState, id: PlayerId) => {
     : undefined;
 };
 
+/** One tick, for the cases that only care where it left everyone. `simulate` itself
+ *  returns the events beside the state, and the two determinism tests below use it
+ *  directly so that those are pinned too. */
+const step = (state: GameState, inputs: readonly PlayerInput[], dtMs: number): GameState =>
+  simulate(state, inputs, dtMs).state;
+
 const find = (state: GameState, id: PlayerId) => {
   const player = state.players.find((candidate) => candidate.id === id);
   if (!player) throw new Error(`no player ${id}`);
@@ -89,8 +95,8 @@ const find = (state: GameState, id: PlayerId) => {
 /** One player, off the ground. A freshly spawned player is not grounded, so the first
  *  step only lands them; the jump is the second. */
 const jumped = (): GameState => {
-  const landed = simulate(gameOf("p1"), [input("p1", 1, { keys: RELEASED })], DT);
-  return simulate(landed, [input("p1", 2, { keys: { ...RELEASED, jump: true } })], DT);
+  const landed = step(gameOf("p1"), [input("p1", 1, { keys: RELEASED })], DT);
+  return step(landed, [input("p1", 2, { keys: { ...RELEASED, jump: true } })], DT);
 };
 
 describe("createGame", () => {
@@ -127,15 +133,15 @@ describe("simulate", () => {
     const inputs = [input("p1", 1), input("p2", 1, { keys: RELEASED, yaw: 1 })];
     const before = structuredClone(start);
 
-    const once = simulate(simulate(start, inputs, DT), [input("p1", 2)], DT);
-    const twice = simulate(simulate(start, inputs, DT), [input("p1", 2)], DT);
+    const once = step(step(start, inputs, DT), [input("p1", 2)], DT);
+    const twice = step(step(start, inputs, DT), [input("p1", 2)], DT);
 
     expect(once).toEqual(twice);
     expect(start).toEqual(before);
   });
 
   it("advances one tick per call however many inputs arrive", () => {
-    const state = simulate(gameOf("p1"), [input("p1", 1), input("p1", 2)], DT);
+    const state = step(gameOf("p1"), [input("p1", 1), input("p1", 2)], DT);
     expect(state.tick).toBe(1);
   });
 
@@ -144,8 +150,8 @@ describe("simulate", () => {
     // frames periodically land inside one tick. Simulating only the newest would leave the
     // server permanently a step behind a prediction the client has already dropped at ack.
     const from = SANDBOX_MAP.spawns[0]?.position.z ?? 0;
-    const one = simulate(gameOf("p1"), [input("p1", 1)], DT);
-    const two = simulate(gameOf("p1"), [input("p1", 1), input("p1", 2)], DT);
+    const one = step(gameOf("p1"), [input("p1", 1)], DT);
+    const two = step(gameOf("p1"), [input("p1", 1), input("p1", 2)], DT);
 
     const single = (one.players[0]?.movement.position.z ?? 0) - from;
     expect((two.players[0]?.movement.position.z ?? 0) - from).toBeCloseTo(2 * single, 6);
@@ -155,10 +161,10 @@ describe("simulate", () => {
   it("ignores an input it has already simulated", () => {
     // A resent or reordered seq must not move the player twice. This guard is also what
     // makes `ackSeq: 0` mean "nothing acknowledged" and nothing else.
-    const once = simulate(gameOf("p1"), [input("p1", 1)], DT);
-    const again = simulate(once, [input("p1", 1), input("p1", 1)], DT);
+    const once = step(gameOf("p1"), [input("p1", 1)], DT);
+    const again = step(once, [input("p1", 1), input("p1", 1)], DT);
 
-    const idle = simulate(once, [], DT);
+    const idle = step(once, [], DT);
     expect(again.players[0]?.movement.position).toEqual(idle.players[0]?.movement.position);
     expect(again.players[0]?.ackSeq).toBe(1);
   });
@@ -167,7 +173,7 @@ describe("simulate", () => {
     // Gravity only advances inside a step, so a player whose frame is late still has to
     // move — and their ack must not move, or the client drops an input it never saw applied.
     const airborne = jumped();
-    const next = simulate(airborne, [], DT);
+    const next = step(airborne, [], DT);
 
     expect(next.players[0]?.movement.grounded).toBe(false);
     expect(next.players[0]?.movement.velocity.y).toBeLessThan(
@@ -177,8 +183,8 @@ describe("simulate", () => {
   });
 
   it("releases the keys of a player who sent nothing rather than repeating them", () => {
-    const running = simulate(gameOf("p1"), [input("p1", 1)], DT);
-    const coasting = simulate(running, [], DT);
+    const running = step(gameOf("p1"), [input("p1", 1)], DT);
+    const coasting = step(running, [], DT);
 
     // Horizontal movement stops the tick their input does; repeating it would walk them
     // into geometry the server never heard them ask for.
@@ -191,14 +197,14 @@ describe("simulate", () => {
   });
 
   it("moves each player only by their own input", () => {
-    const state = simulate(gameOf("p1", "p2"), [input("p1", 1)], DT);
+    const state = step(gameOf("p1", "p2"), [input("p1", 1)], DT);
     expect(find(state, "p2").movement.position).toEqual(SANDBOX_MAP.spawns[1]?.position);
     expect(find(state, "p1").movement.position).not.toEqual(SANDBOX_MAP.spawns[0]?.position);
   });
 
   it("runs the identical step the client predicts with", () => {
     // Prediction only works if both sides call the same function with the same arguments.
-    const state = simulate(gameOf("p1"), [input("p1", 1, { yaw: 0.7 })], DT);
+    const state = step(gameOf("p1"), [input("p1", 1, { yaw: 0.7 })], DT);
     const spawn = SANDBOX_MAP.spawns[0];
     const predicted = stepMovement(
       {
@@ -218,23 +224,23 @@ describe("simulate", () => {
     // A corpse neither walks nor falls. Without this the no-input branch below would keep
     // applying gravity to it, and its own frames would walk it away from where it died.
     const dead = kill(jumped(), "p1");
-    const next = simulate(dead, [input("p1", 5)], DT);
+    const next = step(dead, [input("p1", 5)], DT);
 
     expect(find(next, "p1").movement).toEqual(find(dead, "p1").movement);
-    expect(simulate(dead, [], DT).players[0]?.movement).toEqual(find(dead, "p1").movement);
+    expect(step(dead, [], DT).players[0]?.movement).toEqual(find(dead, "p1").movement);
   });
 
   it("still acknowledges a dead player's inputs", () => {
     // Their client keeps its unacknowledged frames until the server names them. Never
     // acking would leave `reconcile` replaying the same buffer for as long as they lie there.
-    const next = simulate(kill(jumped(), "p1"), [input("p1", 5), input("p1", 6)], DT);
+    const next = step(kill(jumped(), "p1"), [input("p1", 5), input("p1", 6)], DT);
     expect(find(next, "p1").ackSeq).toBe(6);
   });
 
   it("folds a yaw from the wire onto a single turn", () => {
     // Yaw is unbounded on the wire. Left as sent, a hostile value overflows the difference
     // the client takes to interpolate a facing and poisons the mesh's rotation with NaN.
-    const state = simulate(gameOf("p1"), [input("p1", 1, { yaw: 1e308 })], DT);
+    const state = step(gameOf("p1"), [input("p1", 1, { yaw: 1e308 })], DT);
     const yaw = find(state, "p1").yaw;
 
     expect(Number.isFinite(yaw)).toBe(true);
@@ -264,7 +270,7 @@ describe("a shot taken on an input frame", () => {
   };
 
   it("damages the player it is aimed at and nobody else", () => {
-    const state = simulate(lane(), [input("p1", 1, { keys: RELEASED, fire: "primary" })], DT);
+    const state = step(lane(), [input("p1", 1, { keys: RELEASED, fire: "primary" })], DT);
 
     expect(find(state, "p2").health).toBe(MAX_HEALTH - LOADOUT.primary.damage);
     expect(find(state, "p1").health).toBe(MAX_HEALTH);
@@ -279,17 +285,17 @@ describe("a shot taken on an input frame", () => {
       input("p2", 1, { keys: { ...RELEASED, left: true } }),
     ];
 
-    expect(find(simulate(lane(-20, -19.4), stepping, DT), "p2").health).toBeLessThan(MAX_HEALTH);
+    expect(find(step(lane(-20, -19.4), stepping, DT), "p2").health).toBeLessThan(MAX_HEALTH);
     // Standing still, the same shot goes past them.
     const standing = [input("p1", 1, { keys: RELEASED, fire: "primary" })];
-    expect(find(simulate(lane(-20, -19.4), standing, DT), "p2").health).toBe(MAX_HEALTH);
+    expect(find(step(lane(-20, -19.4), standing, DT), "p2").health).toBe(MAX_HEALTH);
   });
 
   it("traces the shot along the aim of the frame that fired it", () => {
     // Two frames land in one tick whenever the two clocks drift — which M3 designed the
     // fold around. The shot belongs to the frame that pulled the trigger, so a flick on
     // the frame after it cannot drag the bullet with it.
-    const state = simulate(
+    const state = step(
       lane(),
       [
         input("p1", 1, { keys: RELEASED, fire: "primary" }),
@@ -301,7 +307,7 @@ describe("a shot taken on an input frame", () => {
   });
 
   it("does not drag a shot onto a target the player turned towards after taking it", () => {
-    const state = simulate(
+    const state = step(
       lane(),
       [
         input("p1", 1, { keys: RELEASED, yaw: 1, fire: "primary" }),
@@ -316,7 +322,7 @@ describe("a shot taken on an input frame", () => {
     // Both frames are simulated — that is what keeps prediction honest — but a tick is one
     // shot, so the weapon named by the last of them is the one that goes off. Melee cannot
     // reach five metres, so this is a miss where the first frame alone would have hit.
-    const state = simulate(
+    const state = step(
       lane(),
       [
         input("p1", 1, { keys: RELEASED, fire: "primary" }),
@@ -329,13 +335,13 @@ describe("a shot taken on an input frame", () => {
 
   it("does not fire on a frame it has already simulated", () => {
     // A replayed frame takes its shot with it, so a resend cannot shoot twice.
-    const once = simulate(lane(), [input("p1", 1, { keys: RELEASED, fire: "primary" })], DT);
-    const again = simulate(once, [input("p1", 1, { keys: RELEASED, fire: "primary" })], DT);
+    const once = step(lane(), [input("p1", 1, { keys: RELEASED, fire: "primary" })], DT);
+    const again = step(once, [input("p1", 1, { keys: RELEASED, fire: "primary" })], DT);
     expect(find(again, "p2").health).toBe(find(once, "p2").health);
   });
 
   it("is not taken by a player who is dead", () => {
-    const state = simulate(
+    const state = step(
       kill(lane(), "p1"),
       [input("p1", 1, { keys: RELEASED, fire: "primary" })],
       DT,
@@ -355,7 +361,7 @@ describe("a shot taken on an input frame", () => {
 
 describe("retainPlayers", () => {
   it("drops everyone who has left and leaves the rest untouched", () => {
-    const state = simulate(gameOf("p1", "p2", "p3"), [input("p2", 1)], DT);
+    const state = step(gameOf("p1", "p2", "p3"), [input("p2", 1)], DT);
     const after = retainPlayers(state, new Set(["p1", "p2"]));
 
     expect(after.players.map((player) => player.id)).toEqual(["p1", "p2"]);
@@ -370,7 +376,7 @@ describe("retainPlayers", () => {
 
 describe("snapshotFor", () => {
   it("acks the recipient's own last simulated input and nobody else's", () => {
-    const state = simulate(gameOf("p1", "p2"), [input("p1", 4), input("p2", 9)], DT);
+    const state = step(gameOf("p1", "p2"), [input("p1", 4), input("p2", 9)], DT);
 
     expect(snapshotFor(state, "p1")).toMatchObject({ type: "snapshot", tick: 1, ackSeq: 4 });
     expect(snapshotFor(state, "p2")).toMatchObject({ ackSeq: 9 });
@@ -460,16 +466,16 @@ describe("respawning", () => {
     let state = kill(createGame(SANDBOX_MAP, ["p1", "p2"], quick), "p1");
     expect(find(state, "p1").respawnAtTick).toBe(2);
 
-    state = simulate(state, [], DT);
+    state = step(state, [], DT);
     expect(find(state, "p1")).toMatchObject({ health: 0, respawnAtTick: 2 });
 
-    state = simulate(state, [], DT);
+    state = step(state, [], DT);
     expect(find(state, "p1")).toMatchObject({ health: MAX_HEALTH, respawnAtTick: null });
   });
 
   it("brings them back at a spawn, upright and unmoving", () => {
     const dead = kill(createGame(SANDBOX_MAP, ["p1", "p2"], quick), "p1");
-    const back = find(simulate(simulate(dead, [], DT), [], DT), "p1");
+    const back = find(step(step(dead, [], DT), [], DT), "p1");
     const spawn = SANDBOX_MAP.spawns.find(
       (candidate) =>
         candidate.position.x === back.movement.position.x &&
@@ -485,7 +491,7 @@ describe("respawning", () => {
     // p2 is standing on p1's own spawn — the camp this rule exists to answer. p1 comes
     // back at the other end of the map instead of under their feet.
     const camped = standAt(kill(createGame(twoSpawns, ["p1", "p2"], quick), "p1"), "p2", -18, -18);
-    const back = find(simulate(simulate(camped, [], DT), [], DT), "p1");
+    const back = find(step(step(camped, [], DT), [], DT), "p1");
 
     expect(back.movement.position).toEqual(twoSpawns.spawns[1]?.position);
   });
@@ -495,7 +501,7 @@ describe("respawning", () => {
     // from. Taken as one pass, both would read the same danger and land in the same place.
     let state = createGame(twoSpawns, ["p1", "p2", "p3"], quick);
     state = kill(kill(standAt(state, "p1", 0, 0), "p2"), "p3");
-    const back = simulate(simulate(state, [], DT), [], DT);
+    const back = step(step(state, [], DT), [], DT);
 
     expect(find(back, "p2").movement.position).not.toEqual(find(back, "p3").movement.position);
   });
@@ -508,7 +514,7 @@ describe("respawning", () => {
         player.id === "p1" ? { ...player, score: 3, deaths: 2 } : player,
       ),
     };
-    const back = find(simulate(simulate(state, [], DT), [], DT), "p1");
+    const back = find(step(step(state, [], DT), [], DT), "p1");
 
     expect(back).toMatchObject({ score: 3, deaths: 2 });
   });
@@ -524,13 +530,13 @@ describe("spawn protection", () => {
 
   it("costs a fresh spawn nothing, and stops costing them nothing", () => {
     // The milestone's own test (PLAN.md M5): protection expires and damage lands again.
-    const shielded = simulate(lane(), [shot("p1", 1)], DT);
+    const shielded = step(lane(), [shot("p1", 1)], DT);
     expect(find(shielded, "p2").health).toBe(MAX_HEALTH);
     expect(snapshotOf(shielded, "p2")).toMatchObject({ spawnProtected: true });
 
     // Tick 2 is the last protected one; the cooldown means the next shot lands on 3.
     let state = shielded;
-    for (const seq of [2, 3]) state = simulate(state, [shot("p1", seq)], DT);
+    for (const seq of [2, 3]) state = step(state, [shot("p1", seq)], DT);
 
     expect(find(state, "p2").health).toBe(MAX_HEALTH - LOADOUT.primary.damage);
     expect(snapshotOf(state, "p2")).toMatchObject({ spawnProtected: false });
@@ -539,7 +545,7 @@ describe("spawn protection", () => {
   it("is given up by firing, so it cannot be shot from behind", () => {
     // p2 is protected until tick 2 but takes a shot of their own on tick 1, which p1's
     // shot on the same tick therefore lands. Both are resolved against one frozen world.
-    const traded = simulate(lane(), [shot("p1", 1), shot("p2", 1, Math.PI / 2)], DT);
+    const traded = step(lane(), [shot("p1", 1), shot("p2", 1, Math.PI / 2)], DT);
 
     expect(find(traded, "p1").health).toBe(MAX_HEALTH - LOADOUT.primary.damage);
     expect(find(traded, "p2").health).toBe(MAX_HEALTH - LOADOUT.primary.damage);
@@ -558,14 +564,14 @@ describe("spawn protection", () => {
         player.id === "p3" ? { ...player, protectedUntilTick: 0 } : player,
       ),
     };
-    const state = simulate(exposed, [shot("p1", 1)], DT);
+    const state = step(exposed, [shot("p1", 1)], DT);
 
     expect(find(state, "p3").health).toBe(MAX_HEALTH);
   });
 
   it("covers a respawn as well as a kickoff", () => {
     const dead = kill(createGame(SANDBOX_MAP, ["p1", "p2"], brief), "p1");
-    const back = simulate(simulate(dead, [], DT), [], DT);
+    const back = step(step(dead, [], DT), [], DT);
 
     expect(snapshotOf(back, "p1")).toMatchObject({ health: MAX_HEALTH, spawnProtected: true });
   });
@@ -607,7 +613,7 @@ describe("matchOutcome", () => {
     // test is here because "the clock kept running through the pause" is what it would
     // look like if that ever stopped being true.
     let state = match();
-    for (let seq = 1; seq <= 5; seq += 1) state = simulate(state, [input("p1", seq)], DT);
+    for (let seq = 1; seq <= 5; seq += 1) state = step(state, [input("p1", seq)], DT);
     const stalled = state;
 
     expect(stalled.tick).toBe(5);
@@ -701,7 +707,7 @@ describe("the step a player takes", () => {
     let state = gameOf("p1");
     for (let seq = 1; seq <= 40; seq += 1) {
       const before = find(state, "p1").movement.position;
-      state = simulate(state, [input("p1", seq)], DT);
+      state = step(state, [input("p1", seq)], DT);
       const after = find(state, "p1").movement.position;
       expect(Math.hypot(after.x - before.x, after.z - before.z)).toBeLessThanOrEqual(
         (MOVE_SPEED * DT) / 1000 + 1e-9,
