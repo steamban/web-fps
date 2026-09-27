@@ -875,6 +875,19 @@ exists, the condition that would reverse it.
   lowpass if it ever misleads in play; the arena is small and open enough that it probably
   will not.
 
+- **The in-match scoreboard is held, not toggled, and it is a second overlay rather than
+  the end-of-match board reused.** A toggle can be left on, covering the match; a hold
+  cannot, and a window that loses focus never reports its keyup, so blur puts it away too.
+  The `matchEnd` board is a different thing in the same shape: it releases the mouse and
+  stops the view taking clicks (M5), which mid-match would hand the pointer back in the
+  middle of a firefight. Tab is ignored unless a match is on screen, because the join
+  form is the one place on this page a keyboard does something else with it.
+- **One comparator in `shared` sorts both boards.** The rule was written inside
+  `matchEndMessage`; the live board needs the same order, and sorted by different rules the
+  board would visibly reshuffle the instant a match ended. The live one is built from the
+  last snapshot and the lobby's names, which the client already has — the same client-side
+  join the killfeed makes, and for the same reason.
+
 
 ## Technical details
 

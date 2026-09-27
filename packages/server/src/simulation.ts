@@ -1,6 +1,7 @@
 import {
   type Ammo,
   aimDirection,
+  compareScores,
   eyePosition,
   type InputKeys,
   LOADOUT,
@@ -426,9 +427,7 @@ export function matchEndMessage(
       ? []
       : [{ id: player.id, name, score: player.score, deaths: player.deaths }];
   });
-  scores.sort(
-    (a, b) => b.score - a.score || a.deaths - b.deaths || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-  );
+  scores.sort(compareScores);
   return { type: "matchEnd", reason, scores };
 }
 

@@ -326,6 +326,33 @@
         font-variant-numeric: tabular-nums;
         pointer-events: none;
       }
+      /* The live board, held rather than toggled, so it can never be left covering the
+         match. Centred and over the view — but it takes no clicks, because the mouse is
+         still captured and the player is still playing. */
+      #standings:not([hidden]) {
+        position: absolute;
+        left: 50%;
+        top: 14%;
+        transform: translateX(-50%);
+        width: min(380px, 100% - 32px);
+        margin: 0;
+        padding: 12px 14px;
+        border-radius: 8px;
+        background: #14161ae6;
+        pointer-events: none;
+      }
+      #standings li {
+        background: transparent;
+        padding: 4px 6px;
+      }
+      #standings b {
+        width: 3.5em;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      #standings .self {
+        outline: 1px solid #2f6fd0;
+      }
       #hint {
         position: absolute;
         left: 50%;
@@ -376,13 +403,15 @@
         <canvas id="view"></canvas>
         <pre id="debug" hidden></pre>
         <ul id="killfeed"></ul>
+        <ul id="standings" hidden></ul>
         <p id="health" hidden></p>
         <p id="ammo" hidden><b id="magazine"></b> <span id="reserve"></span><span id="weapon"></span></p>
         <p id="dead" hidden>Eliminated</p>
         <p id="protected" hidden>Spawn protected</p>
         <p id="hint">
           Click to look around &middot; WASD to move &middot; Space to jump &middot; Click to
-          fire &middot; 1 2 3 to switch weapon &middot; Esc to release the mouse &middot;
+          fire &middot; 1 2 3 to switch weapon &middot; Tab for scores &middot; Esc to release the mouse
+          &middot;
           <a href="/">leave</a>
         </p>
       </section>

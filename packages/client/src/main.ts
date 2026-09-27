@@ -1,5 +1,6 @@
 import {
   type ClientMessage,
+  compareScores,
   decodeServerMessage,
   encodeMessage,
   type KickReason,
@@ -60,6 +61,7 @@ const ui = {
   dead: el("dead"),
   protected: el("protected"),
   killfeed: el("killfeed"),
+  standings: el("standings"),
   debug: el("debug"),
   health: el("health"),
   ammo: el("ammo"),
@@ -98,6 +100,8 @@ let match: Game | null = null;
 let tickRateHz = 0;
 /** The tick of the last snapshot, which is what a killfeed line is dated by. */
 let lastTick = 0;
+/** The last snapshot's players, which is what the live scoreboard is drawn from. */
+let lastPlayers: readonly SnapshotPlayer[] = [];
 /** Set when the server names a reason, so the close handler does not overwrite it. */
 let farewell: string | null = null;
 /**
@@ -325,6 +329,24 @@ function renderHud(self: SnapshotPlayer | undefined, ammo: Snapshot["ammo"]): vo
     held.magazine === 0 && held.reserve > 0 ? "reloading" : `/ ${held.reserve}`;
 }
 
+/**
+ * The scores as they stand, from the snapshot everybody already has, with the names the
+ * lobby already knows — and sorted by the same comparator the server uses for the final
+ * board, so the order does not visibly reshuffle the moment a match ends.
+ */
+function drawStandings(): void {
+  if (ui.standings.hidden) return;
+  const board = lastPlayers
+    .flatMap((player): ScoreEntry[] => {
+      const name = nameOf(player.id);
+      return name === undefined
+        ? []
+        : [{ id: player.id, name, score: player.score, deaths: player.deaths }];
+    })
+    .sort(compareScores);
+  ui.standings.replaceChildren(...board.map(scoreRow));
+}
+
 function scoreRow(entry: ScoreEntry): HTMLLIElement {
   const row = document.createElement("li");
   if (entry.id === current?.selfId) row.className = "self";
@@ -366,6 +388,8 @@ function leaveMatch(): void {
   ui.health.hidden = true;
   ui.ammo.hidden = true;
   ui.debug.hidden = true;
+  ui.standings.hidden = true;
+  lastPlayers = [];
   ui.game.hidden = true;
   ui.dead.hidden = true;
   ui.protected.hidden = true;
@@ -388,6 +412,24 @@ ui.sandbox.addEventListener("click", () => {
   ui.status.textContent = "";
   ui.game.hidden = false;
   startSandbox(ui.view, SANDBOX_MAP);
+});
+
+/**
+ * Held, not toggled: a board that stays up is one that can be left covering the match.
+ * Only while a match is on screen, or Tab would stop moving between the join form's
+ * fields — which is the one place on this page a keyboard is used for anything else.
+ */
+const scoresKey = (event: KeyboardEvent, held: boolean): void => {
+  if (event.code !== "Tab" || match === null) return;
+  event.preventDefault();
+  ui.standings.hidden = !held;
+  drawStandings();
+};
+window.addEventListener("keydown", (event) => scoresKey(event, true));
+window.addEventListener("keyup", (event) => scoresKey(event, false));
+// A window that loses focus never reports the keyup, and the board would stay up.
+window.addEventListener("blur", () => {
+  ui.standings.hidden = true;
 });
 
 ui.start.addEventListener("click", () => send({ type: "start" }));
@@ -467,6 +509,8 @@ ui.form.addEventListener("submit", (event) => {
           message.ammo,
         );
         ageFeed(message.tick);
+        lastPlayers = message.players;
+        drawStandings();
         break;
       }
       case "hit":

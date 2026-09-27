@@ -364,6 +364,47 @@ describe("entering a match", () => {
     expect(el("protected").hidden).toBe(true);
   });
 
+  it("shows the scores while Tab is held and takes them away when it is let go", () => {
+    const socket = joinedLobby();
+    socket.deliver(matchStart());
+    const scoring = (id: string, score: number, deaths: number) => ({
+      id,
+      position: { x: 0, y: 0, z: 0 },
+      yaw: 0,
+      pitch: 0,
+      velocityY: 0,
+      grounded: true,
+      health: 100,
+      alive: true,
+      spawnProtected: false,
+      respawnAtTick: null,
+      score,
+      deaths,
+    });
+    socket.deliver({
+      type: "snapshot",
+      tick: 4,
+      ackSeq: 1,
+      ammo: null,
+      players: [scoring("h", 2, 5), scoring("g", 7, 1)],
+    });
+
+    const hold = (type: "keydown" | "keyup") =>
+      window.dispatchEvent(new KeyboardEvent(type, { code: "Tab", bubbles: true }));
+
+    expect(el("standings").hidden).toBe(true);
+    hold("keydown");
+    expect(el("standings").hidden).toBe(false);
+    // Best first, by the same rule the server sorts the final board with.
+    expect(Array.from(el("standings").children).map((row) => row.textContent)).toEqual([
+      "bob7 k1 d",
+      "arvind2 k5 d",
+    ]);
+
+    hold("keyup");
+    expect(el("standings").hidden).toBe(true);
+  });
+
   it("shows the debug overlay only on a server that allows one", () => {
     const socket = joinedLobby();
     socket.deliver(matchStart());
