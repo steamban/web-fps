@@ -186,6 +186,18 @@ export const SnapshotMessageSchema = z.object({
 });
 
 /**
+ * Somebody pulled a trigger. It carries no ray and no origin: whoever receives it already
+ * has the shooter's position in the snapshot for the same tick, and the only thing it is
+ * for is making a shot audible to everyone who did not fire it — a miss changes no
+ * snapshot field, so without this frame half of a firefight is silent.
+ */
+export const ShotMessageSchema = z.object({
+  type: z.literal("shot"),
+  shooterId: PlayerIdSchema,
+  slot: WeaponSlotSchema,
+});
+
+/**
  * One shot that cost one player health, sent to the shooter alone: it is what a hit
  * marker is drawn from, and with two people shooting at one target the snapshot's health
  * drop says nothing about whose bullet did it.
@@ -250,6 +262,7 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
   LobbyStateMessageSchema,
   MatchStartMessageSchema,
   SnapshotMessageSchema,
+  ShotMessageSchema,
   HitMessageSchema,
   DeathMessageSchema,
   MatchEndMessageSchema,

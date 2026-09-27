@@ -244,6 +244,20 @@ describe("decodeServerMessage", () => {
     expect(decodeServerMessage(JSON.stringify(bad))).toBeNull();
   });
 
+  it("round-trips a shot and the hit it landed", () => {
+    const shot = { type: "shot" as const, shooterId: "p1", slot: "primary" as const };
+    const hit = {
+      type: "hit" as const,
+      shooterId: "p1",
+      targetId: "p2",
+      slot: "primary" as const,
+      damage: 22,
+      remainingHealth: 78,
+    };
+    expect(decodeServerMessage(encodeMessage(shot))).toEqual(shot);
+    expect(decodeServerMessage(encodeMessage(hit))).toEqual(hit);
+  });
+
   it("accepts a death with no killer", () => {
     const death = {
       type: "death" as const,

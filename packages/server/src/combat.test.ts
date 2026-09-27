@@ -362,3 +362,100 @@ describe("a kill", () => {
     );
   });
 });
+
+describe("the events a tick reports", () => {
+  const facing = (over: Partial<PlayerSimState> = {}) =>
+    game([standing("p1", { x: 0, y: 0, z: 0 }), standing("p2", { x: 0, y: 0, z: -5 }, over)]);
+
+  it("reports every trigger pulled, whether or not it hit anything", () => {
+    // A miss changes no snapshot field, so without this frame half of a firefight is
+    // silent to everybody but the person shooting.
+    const wide = game([
+      standing("p1", { x: 0, y: 0, z: 0 }),
+      standing("p2", { x: 20, y: 0, z: -5 }),
+    ]);
+    const { events } = fire(wide, ["p1", "primary"]);
+
+    expect(events).toEqual([{ type: "shot", shooterId: "p1", slot: "primary" }]);
+  });
+
+  it("reports a hit with what it cost and what the target has left", () => {
+    const { events } = fire(facing(), ["p1", "primary"]);
+
+    expect(events).toContainEqual({
+      type: "hit",
+      shooterId: "p1",
+      targetId: "p2",
+      slot: "primary",
+      damage: LOADOUT.primary.damage,
+      remainingHealth: MAX_HEALTH - LOADOUT.primary.damage,
+    });
+  });
+
+  it("reports no hit for a shot a spawn-protected target swallowed", () => {
+    // The bullet stopped on them and cost them nothing. A marker for that teaches the
+    // shooter their aim was right when the shot did nothing at all.
+    const { events, state } = fire(facing({ protectedUntilTick: 99 }), ["p1", "primary"]);
+
+    expect(events.filter((event) => event.type === "hit")).toEqual([]);
+    expect(find(state, "p2").health).toBe(MAX_HEALTH);
+  });
+
+  it("names the killer, the weapon and the countdown on a death", () => {
+    // The pistol, not the default primary: the slot on the line is the one that fired,
+    // and a test that only ever used one weapon could not tell the difference.
+    const { events, state } = fire(facing({ health: 10 }), ["p1", "secondary"]);
+    const dead = find(state, "p2");
+
+    expect(events).toContainEqual({
+      type: "death",
+      victimId: "p2",
+      killerId: "p1",
+      slot: "secondary",
+      // The same tick the victim's own countdown is set to; the feed and the snapshot
+      // cannot disagree about when they come back.
+      respawnAtTick: dead.respawnAtTick,
+    });
+  });
+
+  it("reports a death for each half of a trade", () => {
+    const traded = fire(
+      game([
+        standing("p1", { x: 0, y: 0, z: 0 }, { health: 10 }),
+        standing("p2", { x: 0, y: 0, z: -5 }, { health: 10, yaw: Math.PI }),
+      ]),
+      ["p1", "primary"],
+      ["p2", "primary"],
+    );
+
+    expect(traded.events.filter((event) => event.type === "death")).toHaveLength(2);
+  });
+
+  it("tells both shooters the same remaining health when they land in one tick", () => {
+    // Shots are resolved against a frozen world, so there is no per-shot order to
+    // subtract in — the number is what the target has left after the whole tick.
+    const crossfire = game([
+      standing("p1", { x: 0, y: 0, z: 0 }),
+      standing("victim", { x: 0, y: 0, z: -5 }, { health: 90 }),
+      standing("p3", { x: 0, y: 0, z: -10 }, { yaw: Math.PI }),
+    ]);
+    const hits = fire(crossfire, ["p1", "primary"], ["p3", "primary"]).events.filter(
+      (event) => event.type === "hit",
+    );
+
+    expect(hits).toHaveLength(2);
+    for (const hit of hits) expect(hit.remainingHealth).toBe(90 - 2 * LOADOUT.primary.damage);
+  });
+
+  it("reports the same events whatever order the shots were requested in", () => {
+    const crossfire = game([
+      standing("p1", { x: 0, y: 0, z: 0 }),
+      standing("victim", { x: 0, y: 0, z: -5 }, { health: 30 }),
+      standing("p3", { x: 0, y: 0, z: -10 }, { yaw: Math.PI }),
+    ]);
+
+    expect(fire(crossfire, ["p1", "primary"], ["p3", "primary"]).events).toEqual(
+      fire(crossfire, ["p3", "primary"], ["p1", "primary"]).events,
+    );
+  });
+});

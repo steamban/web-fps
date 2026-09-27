@@ -432,6 +432,43 @@ describe("a running match", () => {
     expect(shooter?.health).toBe(100);
   });
 
+  it("sends the hit marker to the shooter alone and the kill to everybody", async () => {
+    // Routing is the only thing this file adds to the events themselves, and it is the
+    // one part a pure test cannot reach: who each frame goes to.
+    const url = await startServer(loadConfig({ SPAWN_PROTECTION_SECONDS: "0" }));
+    const host = await join(url, "arvind");
+    const guest = await join(url, "bob");
+    await lobbyState(guest, (s) => s.players.length === 2);
+    host.send({ type: "start" });
+    await waitFor(() => host.inbox.find((m) => m.type === "matchStart"), "start");
+    let seq = 0;
+
+    // Paced to the tick rather than sent as a burst: a whole burst lands in one tick, and
+    // one tick fires one round however many frames it was asked to.
+    const shots = setInterval(() => {
+      seq += 1;
+      host.send({
+        type: "input",
+        seq,
+        keys: { forward: false, back: false, left: false, right: false, jump: false },
+        yaw: -Math.PI / 2,
+        pitch: 0,
+        fire: "primary",
+      });
+    }, 20);
+    teardown.push(async () => clearInterval(shots));
+
+    await waitFor(() => guest.inbox.find((m) => m.type === "death"), "the victim's own death");
+    clearInterval(shots);
+    expect(host.inbox.some((m) => m.type === "death")).toBe(true);
+    // The shot is audible to everyone but the person who pulled the trigger.
+    expect(guest.inbox.some((m) => m.type === "shot")).toBe(true);
+    expect(host.inbox.some((m) => m.type === "shot")).toBe(false);
+    // The marker is the shooter's; nobody else is told whose bullet it was.
+    expect(host.inbox.some((m) => m.type === "hit")).toBe(true);
+    expect(guest.inbox.some((m) => m.type === "hit")).toBe(false);
+  });
+
   it("stops simulating a player who leaves and keeps the match running for the rest", async () => {
     const url = await startServer();
     const host = await join(url, "arvind");

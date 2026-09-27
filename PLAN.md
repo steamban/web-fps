@@ -704,6 +704,39 @@ exists, the condition that would reverse it.
   another" against the quantised tick rather than the table, so a future edit to either
   weapon has to keep the triangle rather than remember it.
 
+- **`hit` goes to the shooter, `death` to everybody, and `shot` to everybody but the
+  shooter.** This is the one place the per-recipient pattern does not apply: `snapshotFor`
+  and `lobbyStateFor` build a different frame for each recipient, these are one frame with
+  a different audience, so there is nothing for a `hitFor(state, recipient)` to vary. The
+  marker is the shooter's because with two people firing at one target the health drop on
+  the snapshot says nothing about whose bullet did it. A shooter is left out of their own
+  `shot` because they heard that gun when they clicked, half a tick earlier.
+- **Events are sent after the tick's snapshots, never before.** The snapshot is the
+  authority on who is alive; a killfeed line that overtook it would name a death on
+  somebody its recipient is still drawing on their feet. Not derivable from the code —
+  both loops are in `tick` and either order compiles.
+- **A `shot` frame carries no ray and no origin.** Whoever receives it already has the
+  shooter's position in the snapshot for the same tick, and its only job is to make a shot
+  audible. Without it a miss is silent — it changes no snapshot field — so half of every
+  firefight would happen without a sound. A `fired` flag on `SnapshotPlayer` would be a
+  smaller diff and would cost bytes on every player every tick whether or not anybody was
+  shooting, and it would build a second mechanism beside the events the killfeed needs
+  anyway.
+- **A shot a spawn-protected player swallowed is not a hit.** The bullet still stops on
+  them — M5's rule, and they are still a body — but it cost them nothing, and a marker for
+  it would teach the shooter their aim was right when the shot did nothing at all.
+- **`hit.remainingHealth` is what the target has left after the whole tick.** Shots are
+  resolved against a frozen world, so there is no per-shot order to subtract in; two
+  people who land on one target in the same tick are both told the same number. Reading it
+  as sequential is the mistake it invites, so it is asserted rather than left to the
+  comment.
+- **Kill credit stays with the last shooter in player order.** M4 flagged this as
+  something M6 would notice, because a killfeed is where people start arguing about a
+  trade. Looked at and kept: the feed and the scoreboard read the same field, so whatever
+  they say they cannot contradict each other on screen, and any fairer rule — most damage
+  this tick, first blood — is a second tie-break to keep in step with the score for a case
+  two players have to be within one tick of each other to reach.
+
 
 ## Technical details
 

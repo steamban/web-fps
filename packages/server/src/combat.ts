@@ -4,6 +4,7 @@ import {
   playerBox,
   rayHitsAabb,
   rayHitsMap,
+  type ServerMessage,
   type Vec3,
   type WeaponSlot,
 } from "@web-fps/shared";
@@ -77,10 +78,19 @@ function traceShot(state: GameState, shooter: PlayerSimState, shot: Shot): Playe
   return rayHitsMap(state.map, origin, direction, nearest.distance) === null ? nearest.id : null;
 }
 
-/** Damage landed on one player this tick, and who landed the last of it. */
+/** One shot that reached somebody and cost them health. */
+interface Hit {
+  readonly shooterId: PlayerId;
+  readonly targetId: PlayerId;
+  readonly slot: WeaponSlot;
+  readonly damage: number;
+}
+
+/** Everything that landed on one player this tick, and who landed the last of it. */
 interface Landed {
   readonly damage: number;
   readonly lastShooterId: PlayerId;
+  readonly lastSlot: WeaponSlot;
 }
 
 /**
@@ -117,7 +127,7 @@ export function resolveShots(
   });
   if (firing.length === 0) return { state, events: [] };
 
-  const landed = new Map<PlayerId, Landed>();
+  const hits: Hit[] = [];
   const reloaded = new Map<PlayerId, number>();
   const unprotected = new Set(firing.map(({ shooter }) => shooter.id));
 
@@ -129,21 +139,46 @@ export function resolveShots(
     if (targetId === null) continue;
     // A protected player is still a body: the bullet stops on them, it just costs them
     // nothing. Passing through would make them a window to shoot whoever stood behind.
+    // It is not a hit either — a marker for a shot that cost nothing teaches the shooter
+    // that their aim worked when it did not.
     const target = state.players.find((player) => player.id === targetId);
     if (target && isSpawnProtected(target, state.tick) && !unprotected.has(targetId)) continue;
 
-    const already = landed.get(targetId)?.damage ?? 0;
-    landed.set(targetId, {
-      damage: already + LOADOUT[shot.slot].damage,
-      lastShooterId: shooter.id,
+    hits.push({
+      shooterId: shooter.id,
+      targetId,
+      slot: shot.slot,
+      damage: LOADOUT[shot.slot].damage,
+    });
+  }
+
+  // Folded from the hits rather than accumulated beside them, so the damage a target takes
+  // and the hits reported to whoever dealt it cannot come apart.
+  const landed = new Map<PlayerId, Landed>();
+  for (const hit of hits) {
+    landed.set(hit.targetId, {
+      damage: (landed.get(hit.targetId)?.damage ?? 0) + hit.damage,
+      lastShooterId: hit.shooterId,
+      lastSlot: hit.slot,
     });
   }
 
   const kills = new Map<PlayerId, number>();
+  const deaths: ServerMessage[] = [];
   for (const victim of state.players) {
     const blow = landed.get(victim.id);
     if (!blow || victim.health === 0 || blow.damage < victim.health) continue;
     kills.set(blow.lastShooterId, (kills.get(blow.lastShooterId) ?? 0) + 1);
+    // The same expression the victim's own `respawnAtTick` is written with below, so the
+    // killfeed's countdown and the snapshot's cannot disagree. The credit is the same
+    // field the score increment reads, so neither can the feed and the scoreboard.
+    deaths.push({
+      type: "death",
+      victimId: victim.id,
+      killerId: blow.lastShooterId,
+      slot: blow.lastSlot,
+      respawnAtTick: state.tick + state.rules.respawnTicks,
+    });
   }
 
   const next: GameState = {
@@ -173,5 +208,27 @@ export function resolveShots(
     }),
   };
 
-  return { state: next, events: [] };
+  // Every trigger pulled, then everything that landed, then everyone who died — all three
+  // in player order, so a replay of the same inputs produces the same list. `hit` carries
+  // the health the target is left with after the *whole* tick, because the world these
+  // shots were resolved against is frozen and there is no per-shot order to subtract in:
+  // two people who land on one target this tick are both told the same number.
+  const healthOf = (id: PlayerId): number =>
+    next.players.find((player) => player.id === id)?.health ?? 0;
+
+  const events: ServerMessage[] = [
+    ...firing.map(
+      ({ shooter, shot }): ServerMessage => ({
+        type: "shot",
+        shooterId: shooter.id,
+        slot: shot.slot,
+      }),
+    ),
+    ...hits.map(
+      (hit): ServerMessage => ({ type: "hit", ...hit, remainingHealth: healthOf(hit.targetId) }),
+    ),
+    ...deaths,
+  ];
+
+  return { state: next, events };
 }

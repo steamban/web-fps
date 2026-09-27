@@ -106,6 +106,25 @@ export function attachLobbyServer(httpServer: Server, config: Config): LobbyServ
     if (client?.socket.readyState === WebSocket.OPEN) client.socket.send(encodeMessage(message));
   }
 
+  /**
+   * Who each of a tick's events is for. This is the one asymmetry with `snapshotFor` and
+   * `lobbyStateFor`: those build a different frame per recipient, these are one frame with
+   * a different audience, so there is nothing for a `hitFor(state, recipient)` to vary.
+   */
+  function dispatch(event: ServerMessage): void {
+    // The marker belongs to whoever pulled the trigger; with two people shooting at one
+    // target, the health drop on the snapshot says nothing about whose bullet did it.
+    if (event.type === "hit") {
+      send(event.shooterId, event);
+      return;
+    }
+    for (const member of state.members) {
+      // A shooter heard their own gun when they clicked, half a tick before this.
+      if (event.type === "shot" && member.id === event.shooterId) continue;
+      send(member.id, event);
+    }
+  }
+
   /** One tick: drain what arrived, advance the simulation, tell everyone where they are. */
   function tick(): void {
     // The timer runs through a pause; the simulation does not, so a resumed match picks up
@@ -120,6 +139,10 @@ export function attachLobbyServer(httpServer: Server, config: Config): LobbyServ
     const stepped = simulate(game, inputs, config.tickIntervalMs);
     game = stepped.state;
     for (const player of game.players) send(player.id, snapshotFor(game, player.id));
+    // After the snapshots, always: the snapshot is the authority on who is alive and how
+    // much health they have, and a killfeed line that arrived first would name a death on
+    // a player its recipient is still drawing on their feet.
+    for (const event of stepped.events) dispatch(event);
 
     // Asked of the state the tick just produced, so the snapshot everyone has in hand is
     // the one the scoreboard is about to be drawn from.
