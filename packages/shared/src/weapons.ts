@@ -47,7 +47,9 @@ export const LOADOUT: Readonly<Record<WeaponSlot, WeaponStats>> = {
   },
   secondary: {
     name: "Pistol",
-    damage: 30,
+    // Three shots to a kill rather than four, which is the whole of what distinguishes it
+    // from the SMG now that no multiplier does — see the M6 design log.
+    damage: 34,
     fireIntervalMs: 180,
     magazineSize: 12,
     reserveAmmo: 60,

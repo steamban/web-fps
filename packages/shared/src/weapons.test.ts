@@ -24,6 +24,22 @@ describe("LOADOUT", () => {
     for (const slot of WEAPON_SLOTS) expect(Number.isInteger(LOADOUT[slot].damage)).toBe(true);
   });
 
+  it("leaves no weapon strictly worse than another at the default tick rate", () => {
+    // The pistol is the one at risk: it is outranged and out-magazined by the SMG, so if
+    // it also took longer to kill there would be no reason to carry it. Quantised to the
+    // default 20 Hz tick, because that is what a shot actually costs — see
+    // `fireCooldownTicks`.
+    const shotsToKill = (damage: number) => Math.ceil(MAX_HEALTH / damage);
+    const timeToKillMs = (slot: "primary" | "secondary") => {
+      const weapon = LOADOUT[slot];
+      const intervalMs = Math.max(1, Math.ceil(weapon.fireIntervalMs / 50)) * 50;
+      return (shotsToKill(weapon.damage) - 1) * intervalMs;
+    };
+
+    expect(timeToKillMs("secondary")).toBeLessThanOrEqual(timeToKillMs("primary"));
+    expect(shotsToKill(LOADOUT.secondary.damage)).toBeLessThan(shotsToKill(LOADOUT.primary.damage));
+  });
+
   it("gives melee unlimited ammo and no reload", () => {
     expect(LOADOUT.melee.magazineSize).toBeNull();
     expect(LOADOUT.melee.reloadMs).toBe(0);

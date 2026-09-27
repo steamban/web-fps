@@ -692,6 +692,18 @@ exists, the condition that would reverse it.
   part of it is the most expensive thing to ship and the least visible. Any of the three
   turns the latch back into a distribution or gives it something to aim at.
 
+- **The pistol takes the damage the multiplier was carrying: 30 to 34.** Deleting
+  `headshotMultiplier` left the secondary strictly dominated — 150 damage per second to
+  the SMG's 220, 600 ms to kill against 400, twelve rounds against thirty, and a range
+  advantage worth nothing because both weapons already out-reach the arena's diagonal.
+  A dominated weapon was tolerable while it was an unused table entry; it stops being so
+  in the milestone that puts the weapon's name and its ammo on the screen. 34 is the
+  smallest number that makes it a three-shot kill, which ties the time to kill at 400 ms
+  on three hits instead of five: the same speed, less forgiving of a miss, out of a
+  magazine that empties in four kills. A test now pins "no weapon is strictly worse than
+  another" against the quantised tick rather than the table, so a future edit to either
+  weapon has to keep the triangle rather than remember it.
+
 
 ## Technical details
 
