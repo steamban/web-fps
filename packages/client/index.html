@@ -126,6 +126,31 @@
         height: 100%;
         cursor: crosshair;
       }
+      /* The crosshair is a pseudo-element on the view rather than a node of its own: it is
+         the one thing on screen that never changes, never carries text and is never read
+         by any code, so an id would only be something to keep in step. Two crossed bars
+         with a gap in the middle, so the pixel being aimed at is one nothing covers. */
+      #game:not([hidden])::after {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 22px;
+        height: 22px;
+        transform: translate(-50%, -50%);
+        background:
+          linear-gradient(#e6e8ea, #e6e8ea) 50% 0 / 2px 8px no-repeat,
+          linear-gradient(#e6e8ea, #e6e8ea) 50% 100% / 2px 8px no-repeat,
+          linear-gradient(#e6e8ea, #e6e8ea) 0 50% / 8px 2px no-repeat,
+          linear-gradient(#e6e8ea, #e6e8ea) 100% 50% / 8px 2px no-repeat;
+        opacity: 0.8;
+        pointer-events: none;
+      }
+      /* Nothing to aim at while the board is up or the player is waiting to come back. */
+      body:has(#scoreboard:not([hidden])) #game::after,
+      body:has(#dead:not([hidden])) #game::after {
+        content: none;
+      }
       /* What the round flow has to say to the player it is happening to: a countdown
          while they are waiting to come back, and a note while they cannot be shot. Never
          both at once — a protected player is alive by definition. */
