@@ -25,6 +25,8 @@ const game = vi.hoisted(() => ({
   dispose: vi.fn(),
   snapshot: vi.fn(),
   slot: vi.fn(),
+  remoteShot: vi.fn(),
+  hitMarker: vi.fn(),
 }));
 vi.mock("./game", () => ({ startGame: game.startGame }));
 
@@ -134,9 +136,13 @@ beforeEach(async () => {
     dispose: game.dispose,
     snapshot: game.snapshot,
     slot: game.slot,
+    remoteShot: game.remoteShot,
+    hitMarker: game.hitMarker,
   });
   game.dispose.mockReset();
   game.snapshot.mockReset();
+  game.remoteShot.mockReset();
+  game.hitMarker.mockReset();
   game.slot.mockReset().mockReturnValue("primary");
   vi.stubGlobal("WebSocket", FakeSocket);
   vi.resetModules();
@@ -501,6 +507,15 @@ describe("entering a match", () => {
 
     socket.deliver(hit("h"));
     expect(el("game").classList.contains("hit")).toBe(true);
+    expect(game.hitMarker).toHaveBeenCalledTimes(1);
+  });
+
+  it("hands somebody else's shot to the match to place and play", () => {
+    const socket = joinedLobby();
+    socket.deliver(matchStart());
+    socket.deliver({ type: "shot", shooterId: "g", slot: "secondary" } as ServerMessage);
+
+    expect(game.remoteShot).toHaveBeenCalledWith("g", "secondary");
   });
 
   describe("the killfeed", () => {

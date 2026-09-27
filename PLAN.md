@@ -846,6 +846,35 @@ exists, the condition that would reverse it.
   `EdgesGeometry` gives the twelve real edges. Built only when the server allows it, so
   there is nothing to toggle and nothing to pay for in player mode.
 
+- **Every sound is synthesised; the repo still ships no binary assets.** A gunshot is a
+  filtered noise burst with an envelope on it, which is a dozen lines and no build step,
+  and it reads as arcade — the same reason the renderer is untextured flat-shaded boxes.
+  The numbers are named constants because they are meant to be turned by ear. Two WebAudio
+  traps are written into the code rather than learned twice: an exponential ramp cannot
+  reach zero, so every envelope starts and ends a hair above it, and the `AudioContext` is
+  one per *page* rather than one per match — `enterMatch` rebuilds the match every round,
+  and a browser caps the contexts a document may have, so a per-match one goes silent a few
+  rounds in. It is built on the first sound rather than at import, which also lets the
+  client's tests import the module where no `AudioContext` exists at all.
+- **Your own weapon sounds on the trigger; everybody else's rides a `shot` frame.** A tick
+  and a round trip of latency on your own gun is heard as the game being slow — the same
+  argument M3 made for drawing aim at the frame rate. A frame the server drops takes its
+  sound with it, which is inaudible as an error. A held trigger is gated by re-deriving
+  the server's own cooldown from `LOADOUT`, because the client samples its trigger once
+  per step while the weapon fires every two or four: without it every round would be heard
+  twice.
+- **Footsteps are counted in metres travelled, not in time.** A stride rings every 2.2 m
+  of horizontal ground covered while grounded, taken from the movement step for this
+  player and from consecutive snapshots for everybody else — `grounded` is already on the
+  wire, so no protocol change and no change to the interpolator. Anything longer than a
+  step could cover is a teleport (a respawn, a correction) and resets the carry rather
+  than ringing out the whole distance at once. Remote sounds are panned and this player's
+  are flat: where somebody is, is the entire content of hearing them.
+- **No occlusion.** A footstep behind a wall is as loud as one in the open. `rayHitsMap`
+  is exported from `shared` and the client holds the map, so the fix is one ray and a
+  lowpass if it ever misleads in play; the arena is small and open enough that it probably
+  will not.
+
 
 ## Technical details
 

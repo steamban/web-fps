@@ -3,6 +3,7 @@ import {
   eyePosition,
   MAX_CATCHUP_MS,
   type MapData,
+  MOVE_SPEED,
   type MovementState,
   PLAYER_HALF_WIDTH,
   PLAYER_HEIGHT,
@@ -22,6 +23,7 @@ import {
   Mesh,
   MeshLambertMaterial,
 } from "three";
+import { advanceStride, createAudio, shotIsDue } from "./audio";
 import { createControls } from "./controls";
 import { createDebugMeter, type DebugState } from "./debug";
 import { interpolatePlayers, lerpVec3, type PendingInput, reconcile } from "./netcode";
@@ -65,6 +67,10 @@ export interface GameOptions {
 export interface Game {
   /** Correct the local player and move everyone else towards where the server says. */
   snapshot(message: SnapshotMessage): void;
+  /** Somebody else pulled a trigger; the server says who and with what. */
+  remoteShot(shooterId: PlayerId, slot: WeaponSlot): void;
+  /** One of this player's shots landed. */
+  hitMarker(): void;
   /** Which weapon is in hand, for the HUD. Purely local — see `controls.ts`. */
   slot(): WeaponSlot;
   dispose(): void;
@@ -88,6 +94,10 @@ export function startGame(options: GameOptions): Game {
 
   const view = createView(canvas, map);
   const controls = createControls(canvas, spawn.yaw);
+  const audio = createAudio();
+  // A browser keeps its audio suspended until a gesture, and the click that takes pointer
+  // lock is the one every player makes before they can do anything else.
+  canvas.addEventListener("click", audio.resume);
 
   // One geometry and one material for everybody; the meshes differ only in where they are.
   const body = new BoxGeometry(PLAYER_HALF_WIDTH * 2, PLAYER_HEIGHT, PLAYER_HALF_WIDTH * 2);
@@ -112,6 +122,15 @@ export function startGame(options: GameOptions): Game {
   let previous: Received | null = null;
   let latest: Received | null = null;
 
+  /** The last shot heard locally, so a held trigger sounds at the weapon's rate. */
+  let lastShot: { seq: number; slot: WeaponSlot } | null = null;
+  /** Distance carried towards the next footstep, for this player and for each other one. */
+  let stride = 0;
+  const remoteStride = new Map<PlayerId, number>();
+  /** Longer than any one step can legitimately cover, so a correction is heard as silence
+   *  rather than as a burst of footsteps. */
+  const maxStepMetres = ((MOVE_SPEED * stepMs) / 1000) * 2;
+
   let lastFrame: number | null = null;
   let accumulated = 0;
   /** The server stops stepping a dead player, so this stops predicting one: walking a
@@ -132,8 +151,59 @@ export function startGame(options: GameOptions): Game {
     send({ type: "input", seq, keys, yaw, pitch, fire });
     pending = [...pending, { seq, keys, yaw, sentAt: performance.now() }];
 
+    if (fire !== null && shotIsDue(lastShot, seq, stepMs)) {
+      // On the trigger, not on a server frame: your own weapon is the one place a tick of
+      // latency is heard as the game being slow. The server may still refuse the shot —
+      // a frame it drops takes the sound with it, which is inaudible as an error.
+      audio.shot(fire);
+      lastShot = { seq, slot: fire };
+    }
+
     stepStart = predicted;
     predicted = stepMovement(predicted, keys, yaw, stepMs, map);
+
+    const walked = advanceStride(
+      stride,
+      stepStart.position,
+      predicted.position,
+      predicted.grounded,
+      maxStepMetres,
+    );
+    stride = walked.carried;
+    if (walked.step) audio.footstep();
+    if (!stepStart.grounded && predicted.grounded) {
+      audio.land();
+      stride = 0;
+    }
+  }
+
+  /**
+   * Other players' footsteps, taken from the snapshots rather than from the interpolated
+   * meshes: `grounded` is already on the wire and two snapshots are all a stride needs.
+   * A dead or departed player's carry goes with them, so they do not walk on coming back.
+   */
+  function walkRemotes(): void {
+    if (!previous || !latest) return;
+    const before = new Map(previous.players.map((player) => [player.id, player]));
+
+    for (const player of latest.players) {
+      if (player.id === selfId || !player.alive) {
+        remoteStride.delete(player.id);
+        continue;
+      }
+      const from = before.get(player.id);
+      if (!from?.alive) continue;
+
+      const walked = advanceStride(
+        remoteStride.get(player.id) ?? 0,
+        from.position,
+        player.position,
+        player.grounded,
+        maxStepMetres,
+      );
+      remoteStride.set(player.id, walked.carried);
+      if (walked.step) audio.footstep(player.position);
+    }
   }
 
   function drawRemotes(now: number): void {
@@ -201,6 +271,9 @@ export function startGame(options: GameOptions): Game {
     view.camera.position.set(eye.x, eye.y, eye.z);
     // Straight off the mouse, every frame. Aim is where lag is felt first.
     view.camera.rotation.set(look.pitch, look.yaw, 0);
+    // The ears follow the camera, off the same numbers, so a sound on the left is on the
+    // left of the screen.
+    audio.listener(eye, look.yaw, look.pitch);
 
     drawRemotes(now);
     view.renderer.render(view.scene, view.camera);
@@ -210,6 +283,15 @@ export function startGame(options: GameOptions): Game {
 
   return {
     slot: () => controls.slot(),
+
+    remoteShot(shooterId: PlayerId, slot: WeaponSlot): void {
+      // Placed where the snapshot has them. A shooter who has already left or died between
+      // the frame and this makes no sound rather than one at the origin.
+      const shooter = latest?.players.find((player) => player.id === shooterId);
+      if (shooter) audio.remoteShot(slot, shooter.position);
+    },
+
+    hitMarker: () => audio.hitMarker(),
 
     snapshot(message: SnapshotMessage): void {
       previous = latest;
@@ -222,6 +304,8 @@ export function startGame(options: GameOptions): Game {
       // nothing new finds nothing here and leaves the last reading standing.
       const acked = pending.find((input) => input.seq === message.ackSeq);
       if (acked) meter.ack(latest.at - acked.sentAt);
+
+      walkRemotes();
 
       const self = message.players.find((player) => player.id === selfId);
       if (!self) return;
@@ -241,6 +325,8 @@ export function startGame(options: GameOptions): Game {
 
     dispose(): void {
       controls.dispose();
+      canvas.removeEventListener("click", audio.resume);
+      audio.dispose();
       view.dispose();
       body.dispose();
       skin.dispose();

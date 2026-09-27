@@ -470,7 +470,14 @@ ui.form.addEventListener("submit", (event) => {
         break;
       }
       case "hit":
-        if (message.shooterId === current?.selfId) flashHit();
+        if (message.shooterId === current?.selfId) {
+          flashHit();
+          match?.hitMarker();
+        }
+        break;
+      case "shot":
+        // Only other people's: this client heard its own weapon on the trigger.
+        match?.remoteShot(message.shooterId, message.slot);
         break;
       case "death":
         // Dated by the last tick this client knows about — the snapshot for the tick the
