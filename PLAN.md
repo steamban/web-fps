@@ -753,6 +753,16 @@ exists, the condition that would reverse it.
   snapshot rather than by faking a clock. A line is dated by the last snapshot's tick,
   which is right because the server sends the tick's snapshots before its events.
 
+- **The hit marker is drawn from the server's `hit` frame, not from the local trigger.**
+  It costs a tick and a round trip — about 60 ms on a LAN — and the alternative is a marker
+  that appears on shots which never landed, which teaches a player that their aim was
+  right when it was not. That is worse than a late marker, and it is the reason the client
+  never decides a hit. A health drop on the snapshot cannot stand in for it either: with
+  two people shooting at one target it says nothing about whose bullet did it. The marker
+  is a pseudo-element like the crosshair, so what code touches is a class on `#game`, and
+  the class is removed and re-added through a forced reflow — without that a second hit
+  inside the first marker's 220 ms draws nothing, which at the SMG's rate is most of them.
+
 
 ## Technical details
 

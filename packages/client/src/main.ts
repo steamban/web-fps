@@ -262,6 +262,20 @@ function clearFeed(): void {
   drawFeed();
 }
 
+/**
+ * The hit marker, for the shooter alone — the server decides what a shot reached, and a
+ * marker drawn on the local trigger pull would teach a player their aim was right on
+ * shots that never landed.
+ */
+function flashHit(): void {
+  ui.game.classList.remove("hit");
+  // Reading a layout property is what restarts a CSS animation already part-way through.
+  // Without it a second hit inside the first marker's 220 ms would draw nothing at all,
+  // which at the SMG's rate is most of them.
+  void ui.game.offsetWidth;
+  ui.game.classList.add("hit");
+}
+
 function scoreRow(entry: ScoreEntry): HTMLLIElement {
   const row = document.createElement("li");
   if (entry.id === current?.selfId) row.className = "self";
@@ -297,6 +311,7 @@ function leaveMatch(): void {
   match?.dispose();
   match = null;
   clearFeed();
+  ui.game.classList.remove("hit");
   ui.game.hidden = true;
   ui.dead.hidden = true;
   ui.protected.hidden = true;
@@ -396,6 +411,9 @@ ui.form.addEventListener("submit", (event) => {
         ageFeed(message.tick);
         break;
       }
+      case "hit":
+        if (message.shooterId === current?.selfId) flashHit();
+        break;
       case "death":
         // Dated by the last tick this client knows about — the snapshot for the tick the
         // kill happened on is already in hand, because the server sends it first.

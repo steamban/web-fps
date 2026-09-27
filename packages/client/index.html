@@ -146,6 +146,35 @@
         opacity: 0.8;
         pointer-events: none;
       }
+      /* The hit marker is the crosshair's twin: the same four bars, turned 45 degrees so
+         it reads as an X over the sight rather than a thicker sight, and animated away.
+         A pseudo-element for the same reason the crosshair is one — it carries no text
+         and nothing ever reads it; what code touches is the class on #game. */
+      #game.hit::before {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 26px;
+        height: 26px;
+        background:
+          linear-gradient(#f4f6f8, #f4f6f8) 50% 0 / 2px 7px no-repeat,
+          linear-gradient(#f4f6f8, #f4f6f8) 50% 100% / 2px 7px no-repeat,
+          linear-gradient(#f4f6f8, #f4f6f8) 0 50% / 7px 2px no-repeat,
+          linear-gradient(#f4f6f8, #f4f6f8) 100% 50% / 7px 2px no-repeat;
+        animation: hit-marker 220ms ease-out forwards;
+        pointer-events: none;
+      }
+      @keyframes hit-marker {
+        from {
+          opacity: 1;
+          transform: translate(-50%, -50%) rotate(45deg) scale(0.75);
+        }
+        to {
+          opacity: 0;
+          transform: translate(-50%, -50%) rotate(45deg) scale(1.3);
+        }
+      }
       /* Nothing to aim at while the board is up or the player is waiting to come back. */
       body:has(#scoreboard:not([hidden])) #game::after,
       body:has(#dead:not([hidden])) #game::after {

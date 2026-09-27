@@ -351,6 +351,27 @@ describe("entering a match", () => {
     expect(el("protected").hidden).toBe(true);
   });
 
+  it("marks a hit for the player who fired it and for nobody else", () => {
+    const socket = joinedLobby();
+    socket.deliver(lobbyState({ phase: "inProgress" }));
+    socket.deliver(matchStart());
+    const hit = (shooterId: string): ServerMessage =>
+      ({
+        type: "hit",
+        shooterId,
+        targetId: "g",
+        slot: "primary",
+        damage: 22,
+        remainingHealth: 78,
+      }) as ServerMessage;
+
+    socket.deliver(hit("g"));
+    expect(el("game").classList.contains("hit")).toBe(false);
+
+    socket.deliver(hit("h"));
+    expect(el("game").classList.contains("hit")).toBe(true);
+  });
+
   describe("the killfeed", () => {
     const death = (over: Record<string, unknown> = {}): ServerMessage =>
       ({
