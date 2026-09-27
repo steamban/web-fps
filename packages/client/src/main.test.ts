@@ -351,6 +351,78 @@ describe("entering a match", () => {
     expect(el("protected").hidden).toBe(true);
   });
 
+  describe("the killfeed", () => {
+    const death = (over: Record<string, unknown> = {}): ServerMessage =>
+      ({
+        type: "death",
+        victimId: "g",
+        killerId: "h",
+        slot: "primary",
+        respawnAtTick: 105,
+        ...over,
+      }) as ServerMessage;
+
+    const lines = () => Array.from(el("killfeed").children).map((node) => node.textContent);
+
+    const playing = () => {
+      const socket = joinedLobby();
+      socket.deliver(lobbyState({ phase: "inProgress" }));
+      socket.deliver(matchStart());
+      socket.deliver({ type: "snapshot", tick: 10, ackSeq: 0, players: [] });
+      return socket;
+    };
+
+    it("names both players and the weapon", () => {
+      const socket = playing();
+      socket.deliver(death());
+
+      expect(lines()).toEqual(["arvind — SMG — bob"]);
+      // Either end being you is what makes a line worth looking at.
+      expect(el("killfeed").firstElementChild?.className).toBe("self");
+    });
+
+    it("keeps the newest lines and drops the rest", () => {
+      const socket = playing();
+      for (let i = 0; i < 7; i += 1) socket.deliver(death());
+
+      expect(lines()).toHaveLength(5);
+    });
+
+    it("ages a line off against the tick, not a timer", () => {
+      const socket = playing();
+      socket.deliver(death());
+      expect(lines()).toHaveLength(1);
+
+      // Six seconds at 20 Hz is 120 ticks. One tick short of that it is still up; on the
+      // tick it has had its six seconds it goes.
+      socket.deliver({ type: "snapshot", tick: 10 + 6 * 20 - 1, ackSeq: 0, players: [] });
+      expect(lines()).toHaveLength(1);
+      socket.deliver({ type: "snapshot", tick: 10 + 6 * 20, ackSeq: 0, players: [] });
+      expect(lines()).toEqual([]);
+    });
+
+    it("says nothing about somebody the lobby no longer names", () => {
+      // The scoreboard's rule: a name the roster has lost belongs to somebody who left.
+      const socket = playing();
+      socket.deliver(death({ victimId: "ghost" }));
+
+      expect(lines()).toEqual([]);
+    });
+
+    it("is emptied by the next round and by leaving the match", () => {
+      const socket = playing();
+      socket.deliver(death());
+      socket.deliver(matchStart());
+      expect(lines()).toEqual([]);
+
+      socket.deliver({ type: "snapshot", tick: 10, ackSeq: 0, players: [] });
+      socket.deliver(death());
+      expect(lines()).toHaveLength(1);
+      socket.deliver(lobbyState({ phase: "waiting" }));
+      expect(lines()).toEqual([]);
+    });
+  });
+
   it("puts the scoreboard up at the end of a round and takes it down at the next one", () => {
     const socket = joinedLobby();
     socket.deliver(matchStart());

@@ -3,7 +3,9 @@ import {
   decodeServerMessage,
   encodeMessage,
   type KickReason,
+  LOADOUT,
   type MatchEndReason,
+  type PlayerId,
   PlayerNameSchema,
   PROTOCOL_VERSION,
   SANDBOX_MAP,
@@ -30,6 +32,7 @@ import { toWebSocketUrl } from "./serverUrl";
 type LobbyState = Extract<ServerMessage, { type: "lobbyState" }>;
 type MatchStart = Extract<ServerMessage, { type: "matchStart" }>;
 type MatchEnd = Extract<ServerMessage, { type: "matchEnd" }>;
+type Death = Extract<ServerMessage, { type: "death" }>;
 
 const el = <T extends HTMLElement>(id: string): T => {
   const node = document.getElementById(id);
@@ -54,6 +57,7 @@ const ui = {
   view: el<HTMLCanvasElement>("view"),
   dead: el("dead"),
   protected: el("protected"),
+  killfeed: el("killfeed"),
   scoreboard: el("scoreboard"),
   scoreboardReason: el("scoreboard-reason"),
   scores: el("scores"),
@@ -75,13 +79,26 @@ const KICK_TEXT: Record<KickReason, string> = {
   invalidMessage: "The server rejected a message from this client.",
 };
 
+/** How long a killfeed line stays up, and how many are kept at once. */
+const KILLFEED_SECONDS = 6;
+const KILLFEED_LINES = 5;
+
 let socket: WebSocket | null = null;
 let current: LobbyState | null = null;
 let match: Game | null = null;
 /** From the last `matchStart`: what turns a countdown in ticks into one in seconds. */
 let tickRateHz = 0;
+/** The tick of the last snapshot, which is what a killfeed line is dated by. */
+let lastTick = 0;
 /** Set when the server names a reason, so the close handler does not overwrite it. */
 let farewell: string | null = null;
+/**
+ * The killfeed, aged off by the tick a line arrived at rather than by a wall clock. The
+ * server stops stepping while the host has the match paused, so a tick-aged line waits
+ * behind the pause screen instead of expiring behind it — and there is no timer to cancel
+ * when a round ends or the socket drops.
+ */
+let feed: ReadonlyArray<{ readonly tick: number; readonly node: HTMLLIElement }> = [];
 
 function send(message: ClientMessage): void {
   if (socket?.readyState === WebSocket.OPEN) socket.send(encodeMessage(message));
@@ -163,6 +180,8 @@ function enterMatch(message: MatchStart): void {
 
   ui.game.hidden = false;
   ui.scoreboard.hidden = true;
+  // The next round is a different match; last round's kills are not news in it.
+  clearFeed();
   tickRateHz = message.tickRateHz;
   match = startGame({
     canvas: ui.view,
@@ -190,6 +209,57 @@ function renderSelf(self: SnapshotPlayer | undefined, tick: number): void {
     const seconds = Math.max(0, Math.ceil((self.respawnAtTick - tick) / tickRateHz));
     ui.dead.textContent = `Eliminated — back in ${seconds}`;
   }
+}
+
+const nameOf = (id: PlayerId | null): string | undefined =>
+  current?.players.find((player) => player.id === id)?.name;
+
+/**
+ * One killfeed line. The names are joined here, from the last `lobbyState`, rather than
+ * carried on the frame: the client already has the roster it is looking at, and the
+ * scoreboard's rule fits a line just as well — anybody the lobby no longer has a name for
+ * has left, and the line is dropped rather than printed against an id.
+ */
+function killLine(message: Death): HTMLLIElement | null {
+  const killer = nameOf(message.killerId);
+  const victim = nameOf(message.victimId);
+  if (killer === undefined || victim === undefined) return null;
+
+  const row = document.createElement("li");
+  const weapon = document.createElement("span");
+  weapon.className = "weapon";
+  weapon.textContent = message.slot === null ? " — " : ` — ${LOADOUT[message.slot].name} — `;
+  row.append(killer, weapon, victim);
+  if (message.killerId === current?.selfId || message.victimId === current?.selfId) {
+    row.classList.add("self");
+  }
+  return row;
+}
+
+/** Newest first, capped, and drawn from whatever is left. */
+function showKill(message: Death, tick: number): void {
+  const node = killLine(message);
+  if (!node) return;
+  feed = [{ tick, node }, ...feed].slice(0, KILLFEED_LINES);
+  drawFeed();
+}
+
+/** Ages the feed against the tick the latest snapshot was taken at. */
+function ageFeed(tick: number): void {
+  const oldest = tick - KILLFEED_SECONDS * tickRateHz;
+  const kept = feed.filter((line) => line.tick > oldest);
+  if (kept.length === feed.length) return;
+  feed = kept;
+  drawFeed();
+}
+
+function drawFeed(): void {
+  ui.killfeed.replaceChildren(...feed.map((line) => line.node));
+}
+
+function clearFeed(): void {
+  feed = [];
+  drawFeed();
 }
 
 function scoreRow(entry: ScoreEntry): HTMLLIElement {
@@ -226,6 +296,7 @@ function showScoreboard(message: MatchEnd): void {
 function leaveMatch(): void {
   match?.dispose();
   match = null;
+  clearFeed();
   ui.game.hidden = true;
   ui.dead.hidden = true;
   ui.protected.hidden = true;
@@ -317,12 +388,19 @@ ui.form.addEventListener("submit", (event) => {
         break;
       case "snapshot": {
         match?.snapshot(message);
+        lastTick = message.tick;
         renderSelf(
           message.players.find((player) => player.id === current?.selfId),
           message.tick,
         );
+        ageFeed(message.tick);
         break;
       }
+      case "death":
+        // Dated by the last tick this client knows about — the snapshot for the tick the
+        // kill happened on is already in hand, because the server sends it first.
+        showKill(message, lastTick);
+        break;
       case "matchEnd":
         showScoreboard(message);
         break;

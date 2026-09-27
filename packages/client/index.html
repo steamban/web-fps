@@ -214,6 +214,34 @@
       body:has(#scoreboard:not([hidden])) #view {
         pointer-events: none;
       }
+      /* Under the host's controls, which own the top right corner. Newest at the top, so
+         the line that just appeared is always in the same place. */
+      #killfeed:not([hidden]) {
+        position: absolute;
+        top: 56px;
+        right: 12px;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 3px;
+        justify-items: end;
+        list-style: none;
+        pointer-events: none;
+      }
+      #killfeed li {
+        display: block;
+        padding: 4px 9px;
+        background: #14161acc;
+        border-radius: 5px;
+        font-size: 0.9em;
+        white-space: nowrap;
+      }
+      #killfeed .weapon {
+        color: #8d949c;
+      }
+      #killfeed .self {
+        color: #e2c06a;
+      }
       #hint {
         position: absolute;
         left: 50%;
@@ -262,6 +290,7 @@
 
       <section id="game" hidden>
         <canvas id="view"></canvas>
+        <ul id="killfeed"></ul>
         <p id="dead" hidden>Eliminated</p>
         <p id="protected" hidden>Spawn protected</p>
         <p id="hint">

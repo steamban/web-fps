@@ -737,6 +737,22 @@ exists, the condition that would reverse it.
   this tick, first blood — is a second tie-break to keep in step with the score for a case
   two players have to be within one tick of each other to reach.
 
+- **The killfeed joins names on the client, from the last `lobbyState`.** The scoreboard
+  is joined on the server because it is a final record, sorted once so that every client
+  shows the identical board; a killfeed line is view text rendered once, against a roster
+  the client already has on screen. Joining it server-side would mean two more fields on
+  `death`, a name map rebuilt every tick, and a wire change, for information already in
+  the client's hand. A line naming somebody the lobby no longer has a name for is dropped
+  rather than printed against an id — the same rule the scoreboard uses, and the same
+  `undefined` check absorbs the `killerId: null` the schema still allows but nothing in v1
+  produces.
+- **Killfeed lines are aged by the tick they arrived at, not by a wall clock.** The server
+  stops stepping while the host has the match paused, so a tick-aged line waits behind the
+  pause screen instead of expiring behind it; there is no timer to cancel when a round
+  ends, a socket drops, or the lobby empties; and a test drives six seconds by delivering a
+  snapshot rather than by faking a clock. A line is dated by the last snapshot's tick,
+  which is right because the server sends the tick's snapshots before its events.
+
 
 ## Technical details
 
