@@ -13,6 +13,7 @@ import {
   type ServerMessage,
   type SnapshotPlayer,
 } from "@web-fps/shared";
+import { formatDebug } from "./debug";
 import { type Game, startGame } from "./game";
 import { startSandbox } from "./sandbox";
 import { toWebSocketUrl } from "./serverUrl";
@@ -59,6 +60,7 @@ const ui = {
   dead: el("dead"),
   protected: el("protected"),
   killfeed: el("killfeed"),
+  debug: el("debug"),
   health: el("health"),
   ammo: el("ammo"),
   magazine: el("magazine"),
@@ -184,6 +186,11 @@ function enterMatch(message: MatchStart): void {
   if (selfId === undefined) return;
   match?.dispose();
 
+  // The server's call, not this client's: the overlay is gated behind `GAME_MODE=dev`,
+  // which belongs to whoever is hosting.
+  const debug = current?.debug === true;
+  ui.debug.hidden = !debug;
+  ui.debug.textContent = "";
   ui.game.hidden = false;
   ui.scoreboard.hidden = true;
   // The next round is a different match; last round's kills are not news in it.
@@ -198,6 +205,10 @@ function enterMatch(message: MatchStart): void {
     send,
     // The server stops stepping while the host has it paused, so this stops too.
     isRunning: () => current?.phase === "inProgress",
+    debug,
+    onDebug: (state) => {
+      ui.debug.textContent = formatDebug(state, tickRateHz);
+    },
   });
 }
 
@@ -354,6 +365,7 @@ function leaveMatch(): void {
   ui.game.classList.remove("hit");
   ui.health.hidden = true;
   ui.ammo.hidden = true;
+  ui.debug.hidden = true;
   ui.game.hidden = true;
   ui.dead.hidden = true;
   ui.protected.hidden = true;

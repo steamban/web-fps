@@ -14,8 +14,16 @@ import {
   stepMovement,
   type WeaponSlot,
 } from "@web-fps/shared";
-import { BoxGeometry, Mesh, MeshLambertMaterial } from "three";
+import {
+  BoxGeometry,
+  EdgesGeometry,
+  LineBasicMaterial,
+  LineSegments,
+  Mesh,
+  MeshLambertMaterial,
+} from "three";
 import { createControls } from "./controls";
+import { createDebugMeter, type DebugState } from "./debug";
 import { interpolatePlayers, lerpVec3, type PendingInput, reconcile } from "./netcode";
 import { createView } from "./scene";
 
@@ -48,6 +56,10 @@ export interface GameOptions {
    * predicting through that would mean walking around and then snapping back on resume.
    */
   readonly isRunning: () => boolean;
+  /** Whether this server backs a debug overlay — `lobbyState.debug`. */
+  readonly debug: boolean;
+  /** Called about twice a second while `debug` is on, never otherwise. */
+  readonly onDebug?: (state: DebugState) => void;
 }
 
 export interface Game {
@@ -65,9 +77,11 @@ interface Received {
 }
 
 const REMOTE_COLOR = 0xc8714a;
+/** Green enough to read against the arena and the players both. */
+const HITBOX_COLOR = 0x7fe08a;
 
 export function startGame(options: GameOptions): Game {
-  const { canvas, map, selfId, spawn, tickRateHz, send, isRunning } = options;
+  const { canvas, map, selfId, spawn, tickRateHz, send, isRunning, debug, onDebug } = options;
   // The same expression the server derives its timestep from, so both sides step by the
   // identical double and a prediction can match a simulation exactly.
   const stepMs = 1000 / tickRateHz;
@@ -79,6 +93,15 @@ export function startGame(options: GameOptions): Game {
   const body = new BoxGeometry(PLAYER_HALF_WIDTH * 2, PLAYER_HEIGHT, PLAYER_HALF_WIDTH * 2);
   const skin = new MeshLambertMaterial({ color: REMOTE_COLOR, flatShading: true });
   const meshes = new Map<PlayerId, Mesh>();
+
+  // The body is the same box the server raycasts, but it is drawn turned to face the way
+  // the player is looking and `playerBox` is axis-aligned — which is the whole point of
+  // the wireframe: a player at 45 degrees presents a hitbox wider than their shoulders,
+  // and nothing else on screen can show that. Built only when the server allows it, so
+  // there is nothing to toggle and nothing to pay for in player mode.
+  const edges = debug ? new EdgesGeometry(body) : null;
+  const wire = debug ? new LineBasicMaterial({ color: HITBOX_COLOR }) : null;
+  const meter = createDebugMeter();
 
   let predicted: MovementState = spawnState(spawn);
   /** Where the player was a step ago; the camera is drawn between the two. */
@@ -107,7 +130,7 @@ export function startGame(options: GameOptions): Game {
     const fire = controls.fire();
     seq += 1;
     send({ type: "input", seq, keys, yaw, pitch, fire });
-    pending = [...pending, { seq, keys, yaw }];
+    pending = [...pending, { seq, keys, yaw, sentAt: performance.now() }];
 
     stepStart = predicted;
     predicted = stepMovement(predicted, keys, yaw, stepMs, map);
@@ -127,6 +150,8 @@ export function startGame(options: GameOptions): Game {
       let mesh = meshes.get(player.id);
       if (!mesh) {
         mesh = new Mesh(body, skin);
+        // A child, so the existing cull takes it away with its parent.
+        if (edges && wire) mesh.add(new LineSegments(edges, wire));
         meshes.set(player.id, mesh);
         view.scene.add(mesh);
       }
@@ -137,6 +162,10 @@ export function startGame(options: GameOptions): Game {
         player.position.z,
       );
       mesh.rotation.y = player.yaw;
+      // Turned back out of the parent's yaw, or it would draw a rotating box and claim
+      // the server raycasts one.
+      const box = mesh.children[0];
+      if (box) box.rotation.y = -player.yaw;
     }
 
     const present = new Set(drawn.map((player) => player.id));
@@ -175,6 +204,8 @@ export function startGame(options: GameOptions): Game {
 
     drawRemotes(now);
     view.renderer.render(view.scene, view.camera);
+    // Only on the window rollover, which is twice a second rather than once a frame.
+    if (meter.frame(now) && debug) onDebug?.(meter.read());
   });
 
   return {
@@ -183,6 +214,14 @@ export function startGame(options: GameOptions): Game {
     snapshot(message: SnapshotMessage): void {
       previous = latest;
       latest = { players: message.players, at: performance.now() };
+
+      meter.tick(message.tick);
+      // The input this snapshot acknowledges is still in `pending`; `reconcile` drops it
+      // on the next line. That is the whole of the round trip measurement — no `ping`
+      // frame, and nothing to remember between snapshots. A snapshot that acknowledges
+      // nothing new finds nothing here and leaves the last reading standing.
+      const acked = pending.find((input) => input.seq === message.ackSeq);
+      if (acked) meter.ack(latest.at - acked.sentAt);
 
       const self = message.players.find((player) => player.id === selfId);
       if (!self) return;
@@ -205,6 +244,8 @@ export function startGame(options: GameOptions): Game {
       view.dispose();
       body.dispose();
       skin.dispose();
+      edges?.dispose();
+      wire?.dispose();
       // Hiding the canvas does not hand the mouse back on its own.
       document.exitPointerLock?.();
     },

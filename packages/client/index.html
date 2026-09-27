@@ -309,6 +309,23 @@
       #weapon {
         display: block;
       }
+      /* Top left: the host's controls own the top right and the killfeed sits under them.
+         `pointer-events: none` for the reason the scoreboard's comment gives — a click it
+         swallowed would be a click that failed to recapture the mouse. Tabular figures so
+         the box does not breathe twice a second as the frame rate changes. */
+      #debug:not([hidden]) {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        margin: 0;
+        padding: 6px 9px;
+        border-radius: 6px;
+        background: #14161acc;
+        color: #8d949c;
+        font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-variant-numeric: tabular-nums;
+        pointer-events: none;
+      }
       #hint {
         position: absolute;
         left: 50%;
@@ -357,6 +374,7 @@
 
       <section id="game" hidden>
         <canvas id="view"></canvas>
+        <pre id="debug" hidden></pre>
         <ul id="killfeed"></ul>
         <p id="health" hidden></p>
         <p id="ammo" hidden><b id="magazine"></b> <span id="reserve"></span><span id="weapon"></span></p>

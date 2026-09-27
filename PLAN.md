@@ -819,6 +819,33 @@ exists, the condition that would reverse it.
   dev mode from `minPlayers === 1`, since `MIN_PLAYERS=1` is legitimate configuration in
   player mode and would hand the overlay to everybody on such a server.
 
+- **The overlay's latency is measured from `seq` to `ackSeq`, and is not called a ping.**
+  Every input already carries a sequence number and every snapshot already echoes the last
+  one folded in, and the input being acknowledged is still in the pending buffer at the
+  moment that snapshot arrives — `reconcile` drops it on the next line. So the whole
+  measurement is one `find` and a subtraction: no `ping` frame, no second queue, nothing
+  remembered between snapshots. What it measures is the round trip *plus* the input's wait
+  for the next tick boundary, up to a whole tick, which is the latency a player actually
+  feels; it is labelled `in→ack` and printed beside the tick rate so the floor is visible,
+  rather than being corrected by a guess. Two snapshots can echo the same ack, and the
+  second finds nothing — the last reading stands rather than flickering to zero. The `ws`
+  heartbeat is not reusable for this: a browser answers a protocol-level ping itself and
+  exposes neither the ping nor the pong to JavaScript.
+- **The frame rate is averaged over 500 ms, and that window is also what throttles the
+  DOM.** A per-frame `1000 / elapsed` is unreadable and a ring buffer is bookkeeping for
+  the same answer. `game.ts` calls back only on the rollover, so a 240 Hz display writes
+  text twice a second rather than 240 times.
+- **The hitbox wireframe is drawn on remote players and nowhere else, counter-rotated.**
+  The body mesh is already the exact box the server raycasts — but it is drawn turned to
+  face the way that player is looking, and `playerBox` is axis-aligned. That gap is the
+  whole value of the overlay: somebody standing at 45 degrees presents a hitbox wider than
+  their shoulders and nothing else on screen shows it. The local player's own box is
+  skipped because the camera is inside it, and the map's boxes because `scene.ts` already
+  draws those from the same numbers the resolver reads. A `Box3Helper` would be a lie here
+  — it bounds the *rotated* mesh — and a wireframe material would draw the triangulation;
+  `EdgesGeometry` gives the twelve real edges. Built only when the server allows it, so
+  there is nothing to toggle and nothing to pay for in player mode.
+
 
 ## Technical details
 

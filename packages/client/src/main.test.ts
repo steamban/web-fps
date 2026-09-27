@@ -358,6 +358,20 @@ describe("entering a match", () => {
     expect(el("protected").hidden).toBe(true);
   });
 
+  it("shows the debug overlay only on a server that allows one", () => {
+    const socket = joinedLobby();
+    socket.deliver(matchStart());
+    expect(el("debug").hidden).toBe(true);
+
+    socket.deliver(lobbyState({ debug: true }));
+    socket.deliver(matchStart());
+    expect(el("debug").hidden).toBe(false);
+
+    // And it goes with the match, rather than sitting over the lobby counting nothing.
+    socket.deliver(lobbyState({ phase: "waiting", debug: true }));
+    expect(el("debug").hidden).toBe(true);
+  });
+
   describe("the hud", () => {
     const alive = (health: number) => ({
       id: "h",

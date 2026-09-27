@@ -43,7 +43,13 @@ const snapshotPlayer = (over: Partial<SnapshotPlayer> = {}): SnapshotPlayer => (
   ...over,
 });
 
-const pending = (seq: number, yaw = 0, held = FORWARD): PendingInput => ({ seq, keys: held, yaw });
+const pending = (seq: number, yaw = 0, held = FORWARD): PendingInput => ({
+  seq,
+  keys: held,
+  yaw,
+  // Only the debug overlay's latency reads this; `reconcile` never looks at it.
+  sentAt: 0,
+});
 
 describe("reconcile", () => {
   it("returns exactly the server's state when nothing is unacknowledged", () => {

@@ -31,6 +31,13 @@ export interface PendingInput {
    * disagree by metres.
    */
   readonly yaw: number;
+  /**
+   * When this frame was handed to the socket. The snapshot that acknowledges it is the
+   * other end of a round trip, and it is still in this buffer at the moment that snapshot
+   * arrives — `reconcile` drops it one line later — so the debug overlay's latency needs
+   * no clock of its own and no `ping` frame.
+   */
+  readonly sentAt: number;
 }
 
 export interface Reconciled {
