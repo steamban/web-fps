@@ -644,6 +644,27 @@ exists, the condition that would reverse it.
   worth reading with a cursor. The next `matchStart` takes it down, which is also what
   rebuilds the view.
 
+### M6 — HUD & feedback
+
+- **A tick hands back `{ state, events }`, and the events are wire frames.** M4 flagged
+  the widening as due at "M5 or M6" and M5 re-deferred it; the killfeed is what finally
+  needs it, because *who killed whom* is the one thing no snapshot field carries. They
+  are `ServerMessage`s rather than a private event union: every one of them is sent
+  verbatim, so a parallel type would be one abstraction with one implementation and a
+  mapper between two shapes that are already the same. `simulate` still sends nothing —
+  it returns frames and `net.ts` decides who each one goes to, which is the only part of
+  the pure-reducer rule that was ever at risk here. Called `events` rather than
+  `lobby.ts`'s `effects` on purpose: an effect is an instruction to the transport, an
+  event is a fact about the tick, and reusing the word is how a `{ kind: "send" }` ends
+  up inside `simulate`.
+- **The `respawn` frame is deleted rather than finally sent.** M5 put `respawnAtTick` on
+  `SnapshotPlayer` and pointed the client's respawn yaw at the snapshot too, which is the
+  whole of what a respawn frame would have carried — and the snapshot is right whether or
+  not any other frame arrived, which was M5's argument for putting it there. That left a
+  schema with no producer and nothing for one to tell anybody. It has never been sent, so
+  deleting it is not a wire change any build can notice. `hit` and `death`, the other two
+  M4 left defined and unsent, are what this milestone brings to life.
+
 ## Technical details
 
 Finer-grained practices worth locking in now, since they're much cheaper to follow from M0 than to retrofit after M3.

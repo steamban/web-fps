@@ -204,14 +204,6 @@ export const DeathMessageSchema = z.object({
   respawnAtTick: z.number().int().nonnegative(),
 });
 
-export const RespawnMessageSchema = z.object({
-  type: z.literal("respawn"),
-  playerId: PlayerIdSchema,
-  position: Vec3Schema,
-  yaw: YawSchema,
-  spawnProtectedUntilTick: z.number().int().nonnegative(),
-});
-
 export const MATCH_END_REASONS = ["killLimit", "timeLimit", "closed"] as const;
 export const MatchEndReasonSchema = z.enum(MATCH_END_REASONS);
 export type MatchEndReason = z.infer<typeof MatchEndReasonSchema>;
@@ -252,7 +244,6 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
   SnapshotMessageSchema,
   HitMessageSchema,
   DeathMessageSchema,
-  RespawnMessageSchema,
   MatchEndMessageSchema,
   KickedMessageSchema,
 ]);
