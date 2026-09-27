@@ -178,6 +178,7 @@ describe("decodeServerMessage", () => {
     type: "snapshot" as const,
     tick: 120,
     ackSeq: 7,
+    ammo: { primary: { magazine: 23, reserve: 120 }, secondary: { magazine: 12, reserve: 60 } },
     players: [player],
   };
 
@@ -200,6 +201,19 @@ describe("decodeServerMessage", () => {
       const { [field]: _dropped, ...rest } = snapshot.players[0] ?? {};
       expect(ServerMessageSchema.safeParse({ ...snapshot, players: [rest] }).success).toBe(false);
     }
+  });
+
+  it("carries the recipient's own ammo, and nobody else's", () => {
+    // It sits beside `ackSeq` rather than on every player: both are facts about the one
+    // recipient this frame was built for.
+    expect(decodeServerMessage(encodeMessage(snapshot))).toMatchObject({
+      ammo: { primary: { magazine: 23 } },
+    });
+    // Null is reachable — a recipient who is not a player in this match — but absent is
+    // not: a client reading `undefined` would show an empty gun.
+    expect(ServerMessageSchema.safeParse({ ...snapshot, ammo: null }).success).toBe(true);
+    const { ammo: _dropped, ...missing } = snapshot;
+    expect(ServerMessageSchema.safeParse(missing).success).toBe(false);
   });
 
   it("carries the tick a dead player comes back at", () => {

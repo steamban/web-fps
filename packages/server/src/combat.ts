@@ -5,6 +5,7 @@ import {
   rayHitsAabb,
   rayHitsMap,
   type ServerMessage,
+  usesAmmo,
   type Vec3,
   type WeaponSlot,
 } from "@web-fps/shared";
@@ -13,6 +14,7 @@ import {
   isSpawnProtected,
   type PlayerSimState,
   type SimResult,
+  type SlotAmmo,
 } from "./simulation";
 
 /**
@@ -35,6 +37,15 @@ import {
  */
 export function fireCooldownTicks(slot: WeaponSlot, dtMs: number): number {
   return Math.max(1, Math.ceil(LOADOUT[slot].fireIntervalMs / dtMs));
+}
+
+/**
+ * Ticks a magazine takes to refill, rounded up and floored at one exactly like
+ * `fireCooldownTicks` — the simulation only exists at tick boundaries, so a reload is a
+ * floor on what the table asked for rather than a number the tick rate may shave.
+ */
+export function reloadTicks(slot: WeaponSlot, dtMs: number): number {
+  return Math.max(1, Math.ceil(LOADOUT[slot].reloadMs / dtMs));
 }
 
 /**
@@ -77,6 +88,24 @@ function traceShot(state: GameState, shooter: PlayerSimState, shot: Shot): Playe
   // candidate to fall back to. A wall at exactly that distance blocks.
   return rayHitsMap(state.map, origin, direction, nearest.distance) === null ? nearest.id : null;
 }
+
+/** A round out of one magazine, and the tick that magazine comes back if it was the last. */
+interface Spend {
+  readonly slot: WeaponSlot;
+  readonly reloadingUntilTick: number;
+}
+
+const spend = (
+  ammo: Readonly<Record<WeaponSlot, SlotAmmo>>,
+  round: Spend,
+): Readonly<Record<WeaponSlot, SlotAmmo>> => ({
+  ...ammo,
+  [round.slot]: {
+    ...ammo[round.slot],
+    magazine: ammo[round.slot].magazine - 1,
+    reloadingUntilTick: round.reloadingUntilTick,
+  },
+});
 
 /** One shot that reached somebody and cost them health. */
 interface Hit {
@@ -123,17 +152,35 @@ export function resolveShots(
   const firing = state.players.flatMap((shooter) => {
     const shot = requested.get(shooter.id);
     if (shot === undefined || shooter.health === 0 || state.tick < shooter.nextFireTick) return [];
+    // An empty magazine is not a shot: nothing leaves the barrel, so nothing is traced,
+    // no cooldown is spent, and spawn protection is not given up. Firing is what gives
+    // protection up because it buys ground while invulnerable, and a dry click buys none
+    // — the weapon that rule was written about, the knife, can never be dry.
+    if (usesAmmo(shot.slot) && shooter.ammo[shot.slot].magazine === 0) return [];
     return [{ shooter, shot }];
   });
   if (firing.length === 0) return { state, events: [] };
 
   const hits: Hit[] = [];
-  const reloaded = new Map<PlayerId, number>();
+  /** Earliest tick each shooter may fire anything again. */
+  const cooledUntil = new Map<PlayerId, number>();
+  /** The slot each shooter spent a round from, and the tick its magazine comes back. */
+  const spent = new Map<PlayerId, Spend>();
   const unprotected = new Set(firing.map(({ shooter }) => shooter.id));
 
   for (const { shooter, shot } of firing) {
     // Spent on a miss as much as on a hit.
-    reloaded.set(shooter.id, state.tick + fireCooldownTicks(shot.slot, dtMs));
+    cooledUntil.set(shooter.id, state.tick + fireCooldownTicks(shot.slot, dtMs));
+    if (usesAmmo(shot.slot)) {
+      const emptied = shooter.ammo[shot.slot].magazine === 1;
+      spent.set(shooter.id, {
+        slot: shot.slot,
+        // The round that empties a magazine starts its reload. Only this slot's clock:
+        // the fire cooldown is shared so that switching cannot outpace either weapon,
+        // but locking the other two for a reload would make the loadout pointless.
+        reloadingUntilTick: emptied ? state.tick + reloadTicks(shot.slot, dtMs) : 0,
+      });
+    }
 
     const targetId = traceShot(state, shooter, shot);
     if (targetId === null) continue;
@@ -185,7 +232,8 @@ export function resolveShots(
     ...state,
     players: state.players.map((player) => {
       const blow = landed.get(player.id);
-      const ready = reloaded.get(player.id);
+      const ready = cooledUntil.get(player.id);
+      const round = spent.get(player.id);
       const scored = kills.get(player.id) ?? 0;
       const gaveUp = unprotected.has(player.id) && player.protectedUntilTick !== 0;
       if (!blow && ready === undefined && scored === 0 && !gaveUp) return player;
@@ -204,6 +252,7 @@ export function resolveShots(
         // behind: taking a shot ends it, whether or not the shot hit anything.
         protectedUntilTick: gaveUp ? 0 : player.protectedUntilTick,
         nextFireTick: ready ?? player.nextFireTick,
+        ammo: round === undefined ? player.ammo : spend(player.ammo, round),
       };
     }),
   };

@@ -280,7 +280,7 @@ describe("entering a match", () => {
     const socket = joinedLobby();
     socket.deliver(matchStart());
 
-    socket.deliver({ type: "snapshot", tick: 4, ackSeq: 2, players: [] });
+    socket.deliver({ type: "snapshot", tick: 4, ackSeq: 2, ammo: null, players: [] });
     // A player leaving re-delivers the lobby to everyone still in the match.
     socket.deliver(
       lobbyState({ phase: "inProgress", players: [{ id: "h", name: "a", isHost: true }] }),
@@ -310,19 +310,19 @@ describe("entering a match", () => {
       deaths: alive ? 0 : 1,
     });
 
-    socket.deliver({ type: "snapshot", tick: 4, ackSeq: 1, players: [self(true)] });
+    socket.deliver({ type: "snapshot", tick: 4, ackSeq: 1, ammo: null, players: [self(true)] });
     expect(el("dead").hidden).toBe(true);
 
     // 100 ticks to go at 20 Hz is five seconds; rounded up, so the last second shown is
     // one the player is still waiting through.
-    socket.deliver({ type: "snapshot", tick: 5, ackSeq: 1, players: [self(false)] });
+    socket.deliver({ type: "snapshot", tick: 5, ackSeq: 1, ammo: null, players: [self(false)] });
     expect(el("dead").hidden).toBe(false);
     expect(el("dead").textContent).toBe("Eliminated — back in 5");
 
-    socket.deliver({ type: "snapshot", tick: 84, ackSeq: 1, players: [self(false)] });
+    socket.deliver({ type: "snapshot", tick: 84, ackSeq: 1, ammo: null, players: [self(false)] });
     expect(el("dead").textContent).toBe("Eliminated — back in 2");
 
-    socket.deliver({ type: "snapshot", tick: 105, ackSeq: 1, players: [self(true)] });
+    socket.deliver({ type: "snapshot", tick: 105, ackSeq: 1, ammo: null, players: [self(true)] });
     expect(el("dead").hidden).toBe(true);
   });
 
@@ -344,10 +344,10 @@ describe("entering a match", () => {
       deaths: 0,
     });
 
-    socket.deliver({ type: "snapshot", tick: 1, ackSeq: 0, players: [self(true)] });
+    socket.deliver({ type: "snapshot", tick: 1, ackSeq: 0, ammo: null, players: [self(true)] });
     expect(el("protected").hidden).toBe(false);
 
-    socket.deliver({ type: "snapshot", tick: 101, ackSeq: 0, players: [self(false)] });
+    socket.deliver({ type: "snapshot", tick: 101, ackSeq: 0, ammo: null, players: [self(false)] });
     expect(el("protected").hidden).toBe(true);
   });
 
@@ -389,7 +389,7 @@ describe("entering a match", () => {
       const socket = joinedLobby();
       socket.deliver(lobbyState({ phase: "inProgress" }));
       socket.deliver(matchStart());
-      socket.deliver({ type: "snapshot", tick: 10, ackSeq: 0, players: [] });
+      socket.deliver({ type: "snapshot", tick: 10, ackSeq: 0, ammo: null, players: [] });
       return socket;
     };
 
@@ -416,9 +416,15 @@ describe("entering a match", () => {
 
       // Six seconds at 20 Hz is 120 ticks. One tick short of that it is still up; on the
       // tick it has had its six seconds it goes.
-      socket.deliver({ type: "snapshot", tick: 10 + 6 * 20 - 1, ackSeq: 0, players: [] });
+      socket.deliver({
+        type: "snapshot",
+        tick: 10 + 6 * 20 - 1,
+        ackSeq: 0,
+        ammo: null,
+        players: [],
+      });
       expect(lines()).toHaveLength(1);
-      socket.deliver({ type: "snapshot", tick: 10 + 6 * 20, ackSeq: 0, players: [] });
+      socket.deliver({ type: "snapshot", tick: 10 + 6 * 20, ackSeq: 0, ammo: null, players: [] });
       expect(lines()).toEqual([]);
     });
 
@@ -436,7 +442,7 @@ describe("entering a match", () => {
       socket.deliver(matchStart());
       expect(lines()).toEqual([]);
 
-      socket.deliver({ type: "snapshot", tick: 10, ackSeq: 0, players: [] });
+      socket.deliver({ type: "snapshot", tick: 10, ackSeq: 0, ammo: null, players: [] });
       socket.deliver(death());
       expect(lines()).toHaveLength(1);
       socket.deliver(lobbyState({ phase: "waiting" }));

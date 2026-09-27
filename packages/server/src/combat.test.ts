@@ -9,9 +9,9 @@ import {
   type WeaponSlot,
 } from "@web-fps/shared";
 import { describe, expect, it } from "vitest";
-import { fireCooldownTicks, resolveShots } from "./combat";
+import { fireCooldownTicks, reloadTicks, resolveShots } from "./combat";
 import { loadConfig } from "./config";
-import { type GameState, type PlayerSimState, roundRules } from "./simulation";
+import { fullAmmo, type GameState, type PlayerSimState, roundRules } from "./simulation";
 
 /**
  * PLAN.md's M4 test, and the reason the simulation is a pure reducer: a ray against known
@@ -48,6 +48,7 @@ const standing = (
   protectedUntilTick: 0,
   respawnAtTick: null,
   nextFireTick: 0,
+  ammo: fullAmmo(),
   ...over,
 });
 
@@ -457,5 +458,61 @@ describe("the events a tick reports", () => {
     expect(fire(crossfire, ["p1", "primary"], ["p3", "primary"]).events).toEqual(
       fire(crossfire, ["p3", "primary"], ["p1", "primary"]).events,
     );
+  });
+});
+
+describe("a magazine", () => {
+  const facing = (over: Partial<PlayerSimState> = {}) =>
+    game([standing("p1", { x: 0, y: 0, z: 0 }, over), standing("p2", { x: 0, y: 0, z: -5 })]);
+
+  const withRounds = (slot: "primary" | "secondary", magazine: number, reserve = 60) => ({
+    ammo: { ...fullAmmo(), [slot]: { magazine, reserve, reloadingUntilTick: 0 } },
+  });
+
+  it("loses a round to every shot, hit or miss", () => {
+    const full = LOADOUT.primary.magazineSize ?? 0;
+    const state = shot(facing(), ["p1", "primary"]);
+    expect(find(state, "p1").ammo.primary.magazine).toBe(full - 1);
+  });
+
+  it("costs the knife nothing", () => {
+    const close = game([
+      standing("p1", { x: 0, y: 0, z: 0 }),
+      standing("p2", { x: 0, y: 0, z: -1.5 }),
+    ]);
+    const state = shot(close, ["p1", "melee"]);
+
+    expect(find(state, "p2").health).toBeLessThan(MAX_HEALTH);
+    expect(find(state, "p1").ammo.melee).toEqual(fullAmmo().melee);
+  });
+
+  it("starts reloading on the round that empties it, not on the one after", () => {
+    const state = shot(facing(withRounds("primary", 1)), ["p1", "primary"]);
+    const ammo = find(state, "p1").ammo.primary;
+
+    expect(ammo.magazine).toBe(0);
+    expect(ammo.reloadingUntilTick).toBe(state.tick + reloadTicks("primary", DT));
+  });
+
+  it("refuses a trigger pulled on an empty one, at no cost at all", () => {
+    // Nothing leaves the barrel, so nothing is traced, the cooldown is not spent, and
+    // spawn protection survives — it is given up by buying ground while invulnerable,
+    // which a dry click does not do.
+    const dry = facing({ ...withRounds("primary", 0), protectedUntilTick: 99, nextFireTick: 0 });
+    const state = shot(dry, ["p1", "primary"]);
+    const shooter = find(state, "p1");
+
+    expect(find(state, "p2").health).toBe(MAX_HEALTH);
+    expect(shooter.nextFireTick).toBe(0);
+    expect(shooter.protectedUntilTick).toBe(99);
+  });
+
+  it("leaves the other weapons usable while it refills", () => {
+    // The fire cooldown is shared so that switching cannot outpace either weapon; the
+    // reload is not, or emptying one gun would put the whole loadout away.
+    const empty = facing({ ...withRounds("primary", 0), nextFireTick: 0 });
+    const state = shot(empty, ["p1", "secondary"]);
+
+    expect(find(state, "p2").health).toBe(MAX_HEALTH - LOADOUT.secondary.damage);
   });
 });

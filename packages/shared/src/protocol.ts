@@ -12,7 +12,7 @@ import { WEAPON_SLOTS } from "./weapons";
  */
 
 /** Bumped on any incompatible wire change; mismatched clients are rejected at `join`. */
-export const PROTOCOL_VERSION = 4 as const;
+export const PROTOCOL_VERSION = 5 as const;
 
 /** Path the WebSocket endpoint is mounted at. Both sides read it from here so it cannot drift. */
 export const WS_PATH = "/ws";
@@ -172,6 +172,27 @@ export const SnapshotPlayerSchema = z.object({
 });
 export type SnapshotPlayer = z.infer<typeof SnapshotPlayerSchema>;
 
+export const AmmoSchema = z.object({
+  magazine: z.number().int().nonnegative(),
+  reserve: z.number().int().nonnegative(),
+});
+export type Ammo = z.infer<typeof AmmoSchema>;
+
+/**
+ * What the recipient is carrying. Melee is left out because it draws from nothing —
+ * `usesAmmo` is the one place the table says so.
+ *
+ * Reloading is not a field: a magazine at zero with rounds still in reserve *is* a reload
+ * in progress, because the server puts the fresh magazine in the moment the clock allows
+ * it. Two fields for one fact disagree as soon as a write site updates one of them —
+ * `alive` and `spawnProtected` are derived for the same reason.
+ */
+export const SelfAmmoSchema = z.object({
+  primary: AmmoSchema,
+  secondary: AmmoSchema,
+});
+export type SelfAmmo = z.infer<typeof SelfAmmoSchema>;
+
 export const SnapshotMessageSchema = z.object({
   type: z.literal("snapshot"),
   tick: z.number().int().nonnegative(),
@@ -182,6 +203,19 @@ export const SnapshotMessageSchema = z.object({
    * positions do not yet include.
    */
   ackSeq: z.number().int().nonnegative(),
+  /**
+   * The recipient's own ammo, and nobody else's. It rides the snapshot rather than a
+   * frame of its own for the reason `respawnAtTick` does — it is right on whichever
+   * snapshot arrives, with nothing to arrive in order — and it sits beside `ackSeq`
+   * rather than on every `SnapshotPlayer` because it is the same kind of fact: something
+   * about *this* recipient, on a frame that is already built per recipient. On everybody
+   * would cost a third again in snapshot traffic to tell each client how much ammo its
+   * enemies have.
+   *
+   * Null only for a recipient who is not a player in this match, which is the same case
+   * `ackSeq: 0` covers.
+   */
+  ammo: SelfAmmoSchema.nullable(),
   players: z.array(SnapshotPlayerSchema),
 });
 

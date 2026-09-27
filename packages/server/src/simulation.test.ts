@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import { loadConfig } from "./config";
 import {
   createGame,
+  fullAmmo,
   type GameState,
   matchEndMessage,
   matchOutcome,
@@ -517,6 +518,78 @@ describe("respawning", () => {
     const back = find(step(step(state, [], DT), [], DT), "p1");
 
     expect(back).toMatchObject({ score: 3, deaths: 2 });
+  });
+
+  it("hands back a full loadout", () => {
+    // There are no pickups on this map, so anybody who came back with what they had left
+    // would eventually be stuck holding the knife for the rest of a thirty-kill match.
+    const dead = kill(createGame(SANDBOX_MAP, ["p1", "p2"], quick), "p1");
+    const spent: GameState = {
+      ...dead,
+      players: dead.players.map((player) =>
+        player.id === "p1"
+          ? {
+              ...player,
+              ammo: { ...player.ammo, primary: { magazine: 0, reserve: 0, reloadingUntilTick: 0 } },
+            }
+          : player,
+      ),
+    };
+    const back = find(step(step(spent, [], DT), [], DT), "p1");
+
+    expect(back.ammo).toEqual(fullAmmo());
+  });
+});
+
+describe("a reload", () => {
+  const dryAt = (tick: number, reloadingUntilTick: number): GameState => {
+    const game = createGame(SANDBOX_MAP, ["p1"], RULES);
+    return {
+      ...game,
+      tick,
+      players: game.players.map((player) => ({
+        ...player,
+        nextFireTick: reloadingUntilTick,
+        ammo: {
+          ...player.ammo,
+          primary: { magazine: 0, reserve: 120, reloadingUntilTick },
+        },
+      })),
+    };
+  };
+
+  it("puts the magazine back on the tick it was due, and not before", () => {
+    // A step plays the tick after the one the state is at, so a reload due at tick 20 is
+    // the step out of 19 — and the step out of 18, which plays 19, is still dry.
+    expect(find(step(dryAt(18, 20), [], DT), "p1").ammo.primary.magazine).toBe(0);
+
+    const reloaded = find(step(dryAt(19, 20), [], DT), "p1").ammo.primary;
+    expect(reloaded.magazine).toBe(LOADOUT.primary.magazineSize);
+    expect(reloaded.reserve).toBe(120 - (LOADOUT.primary.magazineSize ?? 0));
+  });
+
+  it("takes what is left of a short reserve and then leaves the slot dead", () => {
+    const short: GameState = {
+      ...dryAt(19, 20),
+      players: dryAt(19, 20).players.map((player) => ({
+        ...player,
+        ammo: { ...player.ammo, primary: { magazine: 0, reserve: 4, reloadingUntilTick: 20 } },
+      })),
+    };
+    const first = find(step(short, [], DT), "p1").ammo.primary;
+    expect(first).toMatchObject({ magazine: 4, reserve: 0 });
+
+    const emptied: GameState = {
+      ...short,
+      players: short.players.map((player) => ({
+        ...player,
+        ammo: { ...player.ammo, primary: { magazine: 0, reserve: 0, reloadingUntilTick: 20 } },
+      })),
+    };
+    expect(find(step(emptied, [], DT), "p1").ammo.primary).toMatchObject({
+      magazine: 0,
+      reserve: 0,
+    });
   });
 });
 

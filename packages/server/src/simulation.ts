@@ -1,7 +1,9 @@
 import {
+  type Ammo,
   aimDirection,
   eyePosition,
   type InputKeys,
+  LOADOUT,
   MAX_HEALTH,
   type MapData,
   type MatchEndReason,
@@ -13,7 +15,9 @@ import {
   type SpawnPoint,
   spawnState,
   stepMovement,
+  usesAmmo,
   type Vec3,
+  WEAPON_SLOTS,
   type WeaponSlot,
   wrapAngle,
 } from "@web-fps/shared";
@@ -41,6 +45,33 @@ export interface PlayerInput {
   readonly fire: WeaponSlot | null;
 }
 
+/**
+ * One slot's ammunition. `reloadingUntilTick` is the tick the fresh magazine goes in,
+ * and it is per slot while `nextFireTick` is per player: the fire cooldown is shared so
+ * that switching weapons cannot be used to shoot faster than either of them allows (M4),
+ * but a reload is a property of the magazine, and sharing it would mean emptying one gun
+ * locks the other two for as long as the reload takes.
+ */
+export interface SlotAmmo {
+  readonly magazine: number;
+  readonly reserve: number;
+  readonly reloadingUntilTick: number;
+}
+
+const loadedSlot = (slot: WeaponSlot): SlotAmmo => ({
+  magazine: LOADOUT[slot].magazineSize ?? 0,
+  reserve: LOADOUT[slot].reserveAmmo,
+  reloadingUntilTick: 0,
+});
+
+/** A full loadout, as issued at a spawn. Melee gets an entry it never reads: keying by
+ *  the whole slot union is what lets every read of it go unguarded. */
+export const fullAmmo = (): Readonly<Record<WeaponSlot, SlotAmmo>> => ({
+  primary: loadedSlot("primary"),
+  secondary: loadedSlot("secondary"),
+  melee: loadedSlot("melee"),
+});
+
 export interface PlayerSimState {
   readonly id: PlayerId;
   readonly movement: MovementState;
@@ -66,6 +97,8 @@ export interface PlayerSimState {
   /** Earliest tick this player may fire again. One clock for all three weapons, so
    *  switching slots cannot be used to shoot faster than either of them allows. */
   readonly nextFireTick: number;
+  /** What is left in each magazine and each reserve. Reset at a spawn, like health. */
+  readonly ammo: Readonly<Record<WeaponSlot, SlotAmmo>>;
 }
 
 /**
@@ -162,6 +195,7 @@ export function createGame(
         protectedUntilTick: rules.protectionTicks,
         respawnAtTick: null,
         nextFireTick: 0,
+        ammo: fullAmmo(),
       };
     }),
   };
@@ -244,10 +278,53 @@ export function simulate(
     }),
   };
 
-  const resolved = resolveShots(moved, requested, dtMs);
+  // Before the shots, so that a magazine whose reload finishes on this tick can be fired
+  // on it — refilling afterwards would make every reload one tick longer than the clock
+  // the shot that emptied it charged.
+  const resolved = resolveShots(reloadDue(moved), requested, dtMs);
   // A respawn is already on the wire as `respawnAtTick` counting down on the snapshot, so
   // it produces no event of its own — see the M5 design log.
   return { state: respawnDue(resolved.state), events: resolved.events };
+}
+
+/**
+ * Puts a fresh magazine in every slot whose reload has come due: emptied, something left
+ * in reserve, and past the tick the emptying shot charged.
+ *
+ * It refills every dry slot rather than the one being carried, because the server has no
+ * idea which that is — the weapon rides each input frame precisely so that it needs no
+ * equipped state to keep in step (M4). It costs nothing: a slot only goes dry by being
+ * fired, and a partial reserve is taken as far as it goes and then the slot is dead.
+ */
+function reloadDue(state: GameState): GameState {
+  const isDue = (ammo: SlotAmmo, slot: WeaponSlot): boolean =>
+    usesAmmo(slot) &&
+    ammo.magazine === 0 &&
+    ammo.reserve > 0 &&
+    state.tick >= ammo.reloadingUntilTick;
+
+  const due = (player: PlayerSimState): boolean =>
+    WEAPON_SLOTS.some((slot) => isDue(player.ammo[slot], slot));
+  if (!state.players.some(due)) return state;
+
+  return {
+    ...state,
+    players: state.players.map((player) => {
+      if (!due(player)) return player;
+      const ammo = { ...player.ammo };
+      for (const slot of WEAPON_SLOTS) {
+        const held = ammo[slot];
+        if (!isDue(held, slot)) continue;
+        const rounds = Math.min(LOADOUT[slot].magazineSize ?? 0, held.reserve);
+        ammo[slot] = {
+          magazine: rounds,
+          reserve: held.reserve - rounds,
+          reloadingUntilTick: 0,
+        };
+      }
+      return { ...player, ammo };
+    }),
+  };
 }
 
 /**
@@ -307,6 +384,9 @@ function respawnDue(state: GameState): GameState {
       health: MAX_HEALTH,
       protectedUntilTick: state.tick + state.rules.protectionTicks,
       respawnAtTick: null,
+      // A spawn is a spawn: there are no pickups on this map, so anybody who came back
+      // with what they had left would eventually be stuck holding the knife.
+      ammo: fullAmmo(),
     };
   }
   return { ...state, players };
@@ -377,6 +457,9 @@ const snapshotOf = (player: PlayerSimState, tick: number): SnapshotPlayer => ({
   spawnProtected: isSpawnProtected(player, tick),
 });
 
+/** What of a slot's ammunition the wire carries: how much is there, not what it is doing. */
+const rounds = (ammo: SlotAmmo): Ammo => ({ magazine: ammo.magazine, reserve: ammo.reserve });
+
 /** Derived, never stored, for the reason `alive` is: one fact, one place it is decided. */
 export const isSpawnProtected = (player: PlayerSimState, tick: number): boolean =>
   tick < player.protectedUntilTick;
@@ -391,6 +474,15 @@ export function snapshotFor(state: GameState, recipientId: PlayerId): ServerMess
     type: "snapshot",
     tick: state.tick,
     ackSeq: recipient?.ackSeq ?? 0,
+    // Theirs alone, like the ack above it, and null in the same case: somebody who is not
+    // a player in this match.
+    ammo:
+      recipient === undefined
+        ? null
+        : {
+            primary: rounds(recipient.ammo.primary),
+            secondary: rounds(recipient.ammo.secondary),
+          },
     players: state.players.map((player) => snapshotOf(player, state.tick)),
   };
 }

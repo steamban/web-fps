@@ -763,6 +763,44 @@ exists, the condition that would reverse it.
   the class is removed and re-added through a forced reflow — without that a second hit
   inside the first marker's 220 ms draws nothing, which at the SMG's rate is most of them.
 
+- **Ammo is server state, and a reload is automatic.** `magazineSize`, `reserveAmmo` and
+  `reloadMs` have sat in the weapon table since M0 with nothing reading them; a HUD
+  counting rounds the server did not count would read "0/30" while shots kept landing, so
+  this is simulation, not view layer, and it is tested like the rest of the simulation
+  despite M6's "verify by playing" line. There is no reload key and no new client-to-server
+  field: the round that empties a magazine starts its reload, and the magazine is back the
+  tick the clock allows. Manual reload only buys topping off a partial magazine before a
+  fight; when somebody asks for it at a LAN party it has to be `reload: WeaponSlot | null`
+  on the input frame, for the same reason `fire` is — the server keeps no equipped state to
+  infer a slot from.
+- **The fire cooldown stays shared; the reload is per slot.** M4 made one clock for all
+  three weapons so that switching could not fire at the sum of two rates. That argument is
+  about rate, not about magazines: sharing the reload would mean emptying the SMG puts the
+  pistol and the knife away for 1.8 seconds, which is most of a fight and makes carrying
+  three weapons pointless. Switching away from a reloading gun is the reason the loadout
+  has slots.
+- **A trigger pulled on an empty magazine is not a shot at all.** No ray, no cooldown
+  spent, and spawn protection survives it. Protection is given up by firing because five
+  seconds of invulnerability is long enough to walk into somebody with a knife — a dry
+  click buys no ground, and the knife, which is what that rule was written about, can
+  never be dry.
+- **The reload runs before the shots in a tick, and a respawn hands back a full loadout.**
+  Refilling after the shots would make every reload a tick longer than the clock the
+  emptying round charged. The refill walks every dry slot rather than the one being
+  carried, because the server has no idea which that is and deliberately does not: it
+  costs nothing, since a slot only goes dry by being fired. A respawn resets ammo with
+  health, because this map has no pickups and anybody who came back with what they had
+  left would end a thirty-kill match holding the knife.
+- **Ammo rides the snapshot beside `ackSeq`, not on every `SnapshotPlayer`.** Both are
+  facts about the one recipient a snapshot is already built for. M3 rejected a self-only
+  *block* for `velocityY` and `grounded`, but those are replay state every player row
+  already carries — ammo is carried nowhere else, so putting it on every row would cost
+  about a third again in snapshot traffic purely to tell each client how much ammo its
+  enemies have. Reloading is not a field either: a magazine at zero with rounds still in
+  reserve *is* a reload in progress, because the server puts the fresh one in the moment
+  the clock allows. `PROTOCOL_VERSION` goes to 5 for it — once for the whole milestone,
+  since a new client against an old server would otherwise drop every snapshot in silence.
+
 
 ## Technical details
 

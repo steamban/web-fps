@@ -66,3 +66,10 @@ export const LOADOUT: Readonly<Record<WeaponSlot, WeaponStats>> = {
     rangeMeters: 2.5,
   },
 };
+
+/**
+ * Whether a slot draws from a magazine at all. `magazineSize: null` is the one statement
+ * of that in the table, read through here so that nothing else has to ask about the knife
+ * by name.
+ */
+export const usesAmmo = (slot: WeaponSlot): boolean => LOADOUT[slot].magazineSize !== null;
