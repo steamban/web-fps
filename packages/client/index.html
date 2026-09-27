@@ -271,6 +271,44 @@
       #killfeed .self {
         color: #e2c06a;
       }
+      /* Health and ammo sit in the bottom corners, out of the way of a crosshair in the
+         middle and a killfeed in the top right. */
+      #health:not([hidden]),
+      #ammo:not([hidden]) {
+        position: absolute;
+        bottom: 16px;
+        margin: 0;
+        font-size: 1.7rem;
+        font-variant-numeric: tabular-nums;
+        text-shadow: 0 1px 3px #14161acc;
+      }
+      #health:not([hidden]) {
+        left: 20px;
+      }
+      #ammo:not([hidden]) {
+        right: 20px;
+        text-align: right;
+      }
+      #health::after {
+        content: " hp";
+        font-size: 0.85rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: #8d949c;
+      }
+      #health.low {
+        color: #e2828f;
+      }
+      #reserve,
+      #weapon {
+        font-size: 0.85rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: #8d949c;
+      }
+      #weapon {
+        display: block;
+      }
       #hint {
         position: absolute;
         left: 50%;
@@ -320,6 +358,8 @@
       <section id="game" hidden>
         <canvas id="view"></canvas>
         <ul id="killfeed"></ul>
+        <p id="health" hidden></p>
+        <p id="ammo" hidden><b id="magazine"></b> <span id="reserve"></span><span id="weapon"></span></p>
         <p id="dead" hidden>Eliminated</p>
         <p id="protected" hidden>Spawn protected</p>
         <p id="hint">

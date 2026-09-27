@@ -12,6 +12,7 @@ import {
   type SpawnPoint,
   spawnState,
   stepMovement,
+  type WeaponSlot,
 } from "@web-fps/shared";
 import { BoxGeometry, Mesh, MeshLambertMaterial } from "three";
 import { createControls } from "./controls";
@@ -52,6 +53,8 @@ export interface GameOptions {
 export interface Game {
   /** Correct the local player and move everyone else towards where the server says. */
   snapshot(message: SnapshotMessage): void;
+  /** Which weapon is in hand, for the HUD. Purely local — see `controls.ts`. */
+  slot(): WeaponSlot;
   dispose(): void;
 }
 
@@ -175,6 +178,8 @@ export function startGame(options: GameOptions): Game {
   });
 
   return {
+    slot: () => controls.slot(),
+
     snapshot(message: SnapshotMessage): void {
       previous = latest;
       latest = { players: message.players, at: performance.now() };

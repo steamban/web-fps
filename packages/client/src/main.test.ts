@@ -24,6 +24,7 @@ const game = vi.hoisted(() => ({
   startGame: vi.fn(),
   dispose: vi.fn(),
   snapshot: vi.fn(),
+  slot: vi.fn(),
 }));
 vi.mock("./game", () => ({ startGame: game.startGame }));
 
@@ -128,9 +129,14 @@ function lobbyState(over: Record<string, unknown> = {}): ServerMessage {
 beforeEach(async () => {
   document.body.innerHTML = MARKUP;
   FakeSocket.opened = [];
-  game.startGame.mockReset().mockReturnValue({ dispose: game.dispose, snapshot: game.snapshot });
+  game.startGame.mockReset().mockReturnValue({
+    dispose: game.dispose,
+    snapshot: game.snapshot,
+    slot: game.slot,
+  });
   game.dispose.mockReset();
   game.snapshot.mockReset();
+  game.slot.mockReset().mockReturnValue("primary");
   vi.stubGlobal("WebSocket", FakeSocket);
   vi.resetModules();
   await import("./main");
@@ -349,6 +355,116 @@ describe("entering a match", () => {
 
     socket.deliver({ type: "snapshot", tick: 101, ackSeq: 0, ammo: null, players: [self(false)] });
     expect(el("protected").hidden).toBe(true);
+  });
+
+  describe("the hud", () => {
+    const alive = (health: number) => ({
+      id: "h",
+      position: { x: 0, y: 0, z: 0 },
+      yaw: 0,
+      pitch: 0,
+      velocityY: 0,
+      grounded: true,
+      health,
+      alive: true,
+      spawnProtected: false,
+      respawnAtTick: null,
+      score: 0,
+      deaths: 0,
+    });
+    const ammo = (magazine: number, reserve: number) => ({
+      primary: { magazine, reserve },
+      secondary: { magazine: 12, reserve: 60 },
+    });
+
+    const playing = () => {
+      const socket = joinedLobby();
+      socket.deliver(matchStart());
+      return socket;
+    };
+
+    it("shows the health and the ammo the server is counting", () => {
+      const socket = playing();
+      socket.deliver({
+        type: "snapshot",
+        tick: 4,
+        ackSeq: 1,
+        ammo: ammo(23, 120),
+        players: [alive(64)],
+      });
+
+      expect(el("health").textContent).toBe("64");
+      expect(el("health").classList.contains("low")).toBe(false);
+      expect(el("magazine").textContent).toBe("23");
+      expect(el("reserve").textContent).toBe("/ 120");
+      expect(el("weapon").textContent).toBe("SMG");
+    });
+
+    it("warns when health is nearly gone", () => {
+      const socket = playing();
+      socket.deliver({
+        type: "snapshot",
+        tick: 4,
+        ackSeq: 1,
+        ammo: ammo(23, 120),
+        players: [alive(30)],
+      });
+      expect(el("health").classList.contains("low")).toBe(true);
+    });
+
+    it("says a magazine with rounds behind it is reloading", () => {
+      const socket = playing();
+      socket.deliver({
+        type: "snapshot",
+        tick: 4,
+        ackSeq: 1,
+        ammo: ammo(0, 120),
+        players: [alive(100)],
+      });
+      expect(el("reserve").textContent).toBe("reloading");
+
+      // Nothing left to put in it, and nothing coming.
+      socket.deliver({
+        type: "snapshot",
+        tick: 5,
+        ackSeq: 1,
+        ammo: ammo(0, 0),
+        players: [alive(100)],
+      });
+      expect(el("reserve").textContent).toBe("/ 0");
+    });
+
+    it("counts no rounds for the knife", () => {
+      game.slot.mockReturnValue("melee");
+      const socket = playing();
+      socket.deliver({
+        type: "snapshot",
+        tick: 4,
+        ackSeq: 1,
+        ammo: ammo(23, 120),
+        players: [alive(100)],
+      });
+
+      expect(el("weapon").textContent).toBe("Knife");
+      expect(el("magazine").hidden).toBe(true);
+      expect(el("reserve").hidden).toBe(true);
+    });
+
+    it("goes away with the match", () => {
+      const socket = playing();
+      socket.deliver({
+        type: "snapshot",
+        tick: 4,
+        ackSeq: 1,
+        ammo: ammo(23, 120),
+        players: [alive(100)],
+      });
+      expect(el("health").hidden).toBe(false);
+
+      socket.deliver(lobbyState({ phase: "waiting" }));
+      expect(el("health").hidden).toBe(true);
+      expect(el("ammo").hidden).toBe(true);
+    });
   });
 
   it("marks a hit for the player who fired it and for nobody else", () => {

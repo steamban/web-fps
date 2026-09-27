@@ -33,6 +33,7 @@ type LobbyState = Extract<ServerMessage, { type: "lobbyState" }>;
 type MatchStart = Extract<ServerMessage, { type: "matchStart" }>;
 type MatchEnd = Extract<ServerMessage, { type: "matchEnd" }>;
 type Death = Extract<ServerMessage, { type: "death" }>;
+type Snapshot = Extract<ServerMessage, { type: "snapshot" }>;
 
 const el = <T extends HTMLElement>(id: string): T => {
   const node = document.getElementById(id);
@@ -58,6 +59,11 @@ const ui = {
   dead: el("dead"),
   protected: el("protected"),
   killfeed: el("killfeed"),
+  health: el("health"),
+  ammo: el("ammo"),
+  magazine: el("magazine"),
+  reserve: el("reserve"),
+  weapon: el("weapon"),
   scoreboard: el("scoreboard"),
   scoreboardReason: el("scoreboard-reason"),
   scores: el("scores"),
@@ -276,6 +282,38 @@ function flashHit(): void {
   ui.game.classList.add("hit");
 }
 
+/** Health at or below this reads as a warning rather than a number. */
+const LOW_HEALTH = 30;
+
+/**
+ * Health, the weapon in hand and what is in it. The ammo comes off the snapshot, where
+ * the server counts it; the weapon comes from the controls, where it is carried, because
+ * the server is told which weapon fired on the frame that fired it and keeps no equipped
+ * state of its own. That makes the name at most one tick stale after a switch, which is
+ * the same tick everything else on this screen is.
+ */
+function renderHud(self: SnapshotPlayer | undefined, ammo: Snapshot["ammo"]): void {
+  ui.health.hidden = self === undefined;
+  ui.ammo.hidden = self === undefined;
+  if (!self) return;
+
+  ui.health.textContent = String(self.health);
+  ui.health.classList.toggle("low", self.health <= LOW_HEALTH);
+
+  const slot = match?.slot() ?? "primary";
+  ui.weapon.textContent = LOADOUT[slot].name;
+
+  const held = slot === "melee" || ammo === null ? null : ammo[slot];
+  ui.magazine.hidden = held === null;
+  ui.reserve.hidden = held === null;
+  if (!held) return;
+  ui.magazine.textContent = String(held.magazine);
+  // A magazine at zero with rounds still in reserve is a reload in flight — the server
+  // puts the fresh one in the moment its clock allows, so there is nothing else it can be.
+  ui.reserve.textContent =
+    held.magazine === 0 && held.reserve > 0 ? "reloading" : `/ ${held.reserve}`;
+}
+
 function scoreRow(entry: ScoreEntry): HTMLLIElement {
   const row = document.createElement("li");
   if (entry.id === current?.selfId) row.className = "self";
@@ -294,6 +332,8 @@ function scoreRow(entry: ScoreEntry): HTMLLIElement {
 function showScoreboard(message: MatchEnd): void {
   ui.dead.hidden = true;
   ui.protected.hidden = true;
+  ui.health.hidden = true;
+  ui.ammo.hidden = true;
   ui.scoreboard.hidden = false;
   ui.scoreboardReason.textContent = END_TEXT[message.reason];
   ui.scores.replaceChildren(...message.scores.map(scoreRow));
@@ -312,6 +352,8 @@ function leaveMatch(): void {
   match = null;
   clearFeed();
   ui.game.classList.remove("hit");
+  ui.health.hidden = true;
+  ui.ammo.hidden = true;
   ui.game.hidden = true;
   ui.dead.hidden = true;
   ui.protected.hidden = true;
@@ -407,6 +449,10 @@ ui.form.addEventListener("submit", (event) => {
         renderSelf(
           message.players.find((player) => player.id === current?.selfId),
           message.tick,
+        );
+        renderHud(
+          message.players.find((player) => player.id === current?.selfId),
+          message.ammo,
         );
         ageFeed(message.tick);
         break;

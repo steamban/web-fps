@@ -801,6 +801,14 @@ exists, the condition that would reverse it.
   the clock allows. `PROTOCOL_VERSION` goes to 5 for it — once for the whole milestone,
   since a new client against an old server would otherwise drop every snapshot in silence.
 
+- **The HUD reads ammo off the snapshot and the weapon off the controls.** The server
+  counts the rounds, so the number on screen is the number a shot will actually have; the
+  weapon in hand is client-only by M4's design, so `Game` exposes the slot rather than the
+  server being told about a switch it does not need to know. That makes the weapon's name
+  at most one tick stale after a switch — the same tick everything else on this screen is.
+  "Reloading" is derived from a magazine at zero with rounds still in reserve, because
+  that is the only thing it can mean once the server refills the moment its clock allows.
+
 
 ## Technical details
 

@@ -70,6 +70,10 @@ export interface Controls {
    * invisible in the held state, and a shot swallowed is worse than a jump swallowed.
    */
   fire(): WeaponSlot | null;
+  /** The weapon being carried. Read by the HUD, which is the only thing outside this file
+   *  that has ever needed to know: the server is told which weapon fired on the frame
+   *  that fired it and keeps no equipped state of its own. */
+  slot(): WeaponSlot;
   /**
    * Point the view where the server has just put this player. Used on a respawn, which
    * is the one time the world moves without the mouse having asked it to: the spawn yaws
@@ -173,6 +177,7 @@ export function createControls(canvas: HTMLElement, startYaw: number): Controls 
       return sample;
     },
     look: () => look,
+    slot: () => slot,
     faceSpawn: (yaw: number) => {
       look = { yaw: wrapAngle(yaw), pitch: 0 };
     },
