@@ -897,6 +897,44 @@ exists, the condition that would reverse it.
   so the number is at most one tick stale, which is one round either side of running out.
 
 
+### M7 — Docker packaging pass
+
+- **The server serves the client.** The milestone offered "static build or same dev
+  server"; a static build out of the Node server already running is the one that makes
+  hosting a single thing to start and a single address to read out at a LAN party. A
+  second container for a web server would double the ports to publish and the addresses
+  to get wrong, to serve three files. It is about thirty lines of `node:http` — no
+  framework, no new dependency — and the WebSocket is already on that server, so the page
+  and the socket it dials can never disagree about where they are.
+- **The request path is the trust boundary, and `..` is checked after decoding.** The
+  resolved path has to come back inside the dist root, because `new URL` normalises a
+  plain `../..` away but a percent-encoded one survives parsing and only the root check
+  catches it — that is the case the test exists for. An extension with no entry in the
+  content-type table is refused rather than guessed, so a stray `.env` or `.bak` next to
+  the bundle is not servable even if one ever lands there.
+- **The join form is prefilled from `location.host` in a built client only.** A built
+  client is only ever served by the game server, so the address is the one the player
+  already typed into the URL bar and asking for it again is asking them to read it off
+  their own browser. Under Vite the server is somewhere else entirely, so the field stays
+  empty and the placeholder stands — `import.meta.env.DEV` is the switch, which costs no
+  request and cannot be wrong, unlike probing `/health` to guess what served the page.
+- **The runtime stage reinstalls rather than copying the build stage's `node_modules`.**
+  The bundler, Three.js and every type definition are build-time only; copying the tree
+  would carry all of it into the running image. `tsx` moves to the server's
+  `dependencies` in the same breath, because it is how the server runs, not how it is
+  developed — with it in `devDependencies`, `--omit=dev` produces an image that cannot
+  start. The server still runs from TypeScript source; a `tsc` build step would be a
+  second artifact to keep honest for no gain this project can measure.
+- **`CMD` is `npx tsx`, not `npm start`.** `npm` would sit between the container's signal
+  and the process that handles it, and the shutdown path in `index.ts` is what closes the
+  open WebSockets before exit — without it a stop is a torn connection for everyone in
+  the match rather than a clean close.
+- **Dev compose became an override file rather than the default.** `docker-compose.yml`
+  is what a host runs, so it builds the production image; the bind-mounted live-reload
+  setup moves to `docker-compose.dev.yml` layered on top. It serves no client, since the
+  Vite dev server is the point of working that way at all.
+
+
 ## Technical details
 
 Finer-grained practices worth locking in now, since they're much cheaper to follow from M0 than to retrofit after M3.

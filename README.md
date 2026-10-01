@@ -51,15 +51,24 @@ docker compose up --build
 curl http://localhost:8080/health
 ```
 
-The server binds `0.0.0.0` and the port is published, so a second machine reaches it at
-`http://<your-lan-ip>:8080` or `http://<your-tailscale-ip>:8080`. `packages/*/src` is
-bind-mounted, so edits reload the server in place.
+That builds the client into the image and serves it from the same port the game socket
+is on, so there is one address to hand around. The server binds `0.0.0.0` and the port is
+published, so everyone else opens `http://<your-lan-ip>:8080` or
+`http://<your-tailscale-ip>:8080`, types a name and presses Join — the address field is
+already filled in with the host they reached the page on.
 
-Only source is mounted; dependencies are baked into the image. That is why the command
-above says `--build` — a plain `docker compose up` reuses whatever image exists, and one
-built before a dependency was added fails at startup with
-`Error [ERR_MODULE_NOT_FOUND]: Cannot find package '<name>'`. Rebuilding is a cache hit
-when nothing has changed, so there is no reason not to always pass it.
+Pass `--build` every time. The image contains the built client and the installed
+dependencies, so a plain `docker compose up` happily reuses one built before either
+changed; rebuilding is a cache hit when nothing has, so there is no reason not to.
+
+To edit the server inside the container instead, with the source bind-mounted and
+reloading in place:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+```
+
+That one serves no client — run the Vite dev server for it, as below.
 
 Without Docker:
 
@@ -70,7 +79,8 @@ npm run dev:client   # client on :5173
 ```
 
 Open `http://localhost:5173`, type the server's `host:port` (the port alone defaults to
-`8080`) and a name. The first person to join hosts and gets the lobby controls; everyone
+`8080`) and a name. The dev server is not the game server, so here the address is typed
+rather than filled in. The first person to join hosts and gets the lobby controls; everyone
 else sees the player list. Open a second browser tab to play both sides — or set
 `GAME_MODE=dev` to start a match on your own.
 
