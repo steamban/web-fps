@@ -124,6 +124,16 @@ export function startGame(options: GameOptions): Game {
 
   /** The last shot heard locally, so a held trigger sounds at the weapon's rate. */
   let lastShot: { seq: number; slot: WeaponSlot } | null = null;
+  /** This player's own ammo, off the last snapshot. The server refuses a shot from an
+   *  empty magazine outright, so without this a dry weapon keeps banging away. At most
+   *  one tick stale, which is one round either side of the magazine running out. */
+  let ammo: SnapshotMessage["ammo"] = null;
+  const hasRounds = (slot: WeaponSlot): boolean => {
+    // The snapshot's ammo block carries exactly the slots that draw from a magazine, so
+    // the knife is not in it; a null block is somebody who is not a player in this match.
+    if (slot === "melee" || ammo === null) return true;
+    return ammo[slot].magazine > 0;
+  };
   /** Distance carried towards the next footstep, for this player and for each other one. */
   let stride = 0;
   const remoteStride = new Map<PlayerId, number>();
@@ -151,7 +161,7 @@ export function startGame(options: GameOptions): Game {
     send({ type: "input", seq, keys, yaw, pitch, fire });
     pending = [...pending, { seq, keys, yaw, sentAt: performance.now() }];
 
-    if (fire !== null && shotIsDue(lastShot, seq, stepMs)) {
+    if (fire !== null && hasRounds(fire) && shotIsDue(lastShot, seq, stepMs)) {
       // On the trigger, not on a server frame: your own weapon is the one place a tick of
       // latency is heard as the game being slow. The server may still refuse the shot —
       // a frame it drops takes the sound with it, which is inaudible as an error.
@@ -288,7 +298,9 @@ export function startGame(options: GameOptions): Game {
       // Placed where the snapshot has them. A shooter who has already left or died between
       // the frame and this makes no sound rather than one at the origin.
       const shooter = latest?.players.find((player) => player.id === shooterId);
-      if (shooter) audio.remoteShot(slot, shooter.position);
+      // From the eye, where the shot actually leaves: the listener is 1.65 m up too, and
+      // a sound at a player's feet is heard from below them.
+      if (shooter) audio.remoteShot(slot, eyePosition(shooter.position));
     },
 
     hitMarker: () => audio.hitMarker(),
@@ -298,6 +310,7 @@ export function startGame(options: GameOptions): Game {
       latest = { players: message.players, at: performance.now() };
 
       meter.tick(message.tick);
+      ammo = message.ammo;
       // The input this snapshot acknowledges is still in `pending`; `reconcile` drops it
       // on the next line. That is the whole of the round trip measurement — no `ping`
       // frame, and nothing to remember between snapshots. A snapshot that acknowledges

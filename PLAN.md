@@ -890,6 +890,12 @@ exists, the condition that would reverse it.
   last snapshot and the lobby's names, which the client already has — the same client-side
   join the killfeed makes, and for the same reason.
 
+- **The local gunshot is gated on the magazine the server is counting.** The server
+  refuses a shot from an empty one outright, so without this a dry weapon keeps banging
+  away while nothing leaves the barrel — the one case where a sound asserts something
+  about the simulation that is false. The client reads its own magazine off the snapshot,
+  so the number is at most one tick stale, which is one round either side of running out.
+
 
 ## Technical details
 
