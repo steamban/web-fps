@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { WS_PATH } from "@web-fps/shared";
 import { loadConfig } from "./config";
 import { attachLobbyServer } from "./net";
+import { CLIENT_DIST, serveAsset } from "./static";
 
 /**
  * Server entrypoint: configuration boundary, health check, and the WebSocket lobby.
@@ -9,6 +10,10 @@ import { attachLobbyServer } from "./net";
  *
  * Binds 0.0.0.0 deliberately so the container port publish makes it reachable over
  * LAN and Tailscale, not just from inside the container.
+ *
+ * It also serves the built client, when one has been built, so hosting a game is one
+ * port to publish and one address to read out. Without a build the page 404s and the
+ * Vite dev server is where the client lives instead.
  */
 
 const HOST = "0.0.0.0";
@@ -22,8 +27,11 @@ function main(): void {
       res.end(JSON.stringify({ status: "ok", gameMode: config.gameMode }));
       return;
     }
-    res.writeHead(404, { "content-type": "text/plain" });
-    res.end("not found");
+    void serveAsset(CLIENT_DIST, req.method, req.url ?? "/", res).then((served) => {
+      if (served) return;
+      res.writeHead(404, { "content-type": "text/plain" });
+      res.end("not found");
+    });
   });
 
   const lobby = attachLobbyServer(server, config);
