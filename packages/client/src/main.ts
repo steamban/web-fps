@@ -96,6 +96,8 @@ const KILLFEED_LINES = 5;
 let socket: WebSocket | null = null;
 let current: LobbyState | null = null;
 let match: Game | null = null;
+/** Backquote, and sticky across matches on this page: see `statsKey`. */
+let statsVisible = false;
 /** From the last `matchStart`: what turns a countdown in ticks into one in seconds. */
 let tickRateHz = 0;
 /** The tick of the last snapshot, which is what a killfeed line is dated by. */
@@ -190,10 +192,10 @@ function enterMatch(message: MatchStart): void {
   if (selfId === undefined) return;
   match?.dispose();
 
-  // The server's call, not this client's: the overlay is gated behind `GAME_MODE=dev`,
-  // which belongs to whoever is hosting.
+  // The hitbox wireframes are the server's call, gated behind `GAME_MODE=dev`. The stats
+  // overlay is this player's, and survives into the next match on the same page.
   const debug = current?.debug === true;
-  ui.debug.hidden = !debug;
+  ui.debug.hidden = !statsVisible;
   ui.debug.textContent = "";
   ui.game.hidden = false;
   ui.scoreboard.hidden = true;
@@ -419,6 +421,24 @@ ui.sandbox.addEventListener("click", () => {
  * Only while a match is on screen, or Tab would stop moving between the join form's
  * fields — which is the one place on this page a keyboard is used for anything else.
  */
+/**
+ * Toggled, not held: these are numbers to watch while playing — the point of a worst-frame
+ * reading is to catch the hitch when it happens, which is not a key anyone can be holding
+ * at the time. Backquote because it is the console key every shooter puts the same numbers
+ * behind, and because nothing else on this page wants it.
+ *
+ * Available in any match rather than behind the host's `GAME_MODE`: this is the overlay a
+ * player reaches for to tell a frame rate problem from a network one, and needing the host
+ * to restart the server first makes it useless for exactly that.
+ */
+const statsKey = (event: KeyboardEvent): void => {
+  if (event.code !== "Backquote" || match === null) return;
+  event.preventDefault();
+  statsVisible = !statsVisible;
+  ui.debug.hidden = !statsVisible;
+};
+window.addEventListener("keydown", statsKey);
+
 const scoresKey = (event: KeyboardEvent, held: boolean): void => {
   if (event.code !== "Tab" || match === null) return;
   event.preventDefault();

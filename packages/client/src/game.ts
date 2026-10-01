@@ -58,9 +58,13 @@ export interface GameOptions {
    * predicting through that would mean walking around and then snapping back on resume.
    */
   readonly isRunning: () => boolean;
-  /** Whether this server backs a debug overlay — `lobbyState.debug`. */
+  /**
+   * Whether this server draws hitbox wireframes on remote players — `lobbyState.debug`,
+   * which is the host's `GAME_MODE=dev`. Seeing the boxes the server raycasts is an
+   * advantage, so it stays the host's call; the stats overlay is not and does not.
+   */
   readonly debug: boolean;
-  /** Called about twice a second while `debug` is on, never otherwise. */
+  /** Called about twice a second, always: whether anything is on screen is the caller's. */
   readonly onDebug?: (state: DebugState) => void;
 }
 
@@ -288,7 +292,7 @@ export function startGame(options: GameOptions): Game {
     drawRemotes(now);
     view.renderer.render(view.scene, view.camera);
     // Only on the window rollover, which is twice a second rather than once a frame.
-    if (meter.frame(now) && debug) onDebug?.(meter.read());
+    if (meter.frame(now)) onDebug?.(meter.read());
   });
 
   return {

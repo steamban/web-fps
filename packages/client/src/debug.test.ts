@@ -71,10 +71,64 @@ describe("the overlay text", () => {
     meter.ack(31);
     meter.tick(4182);
 
-    expect(formatDebug(meter.read(), 20)).toBe("fps 0\nin→ack 31 ms\ntick 4182 @ 20 Hz");
+    expect(formatDebug(meter.read(), 20)).toBe(
+      "fps 0 (worst frame 0 ms)\nin→ack 31 ms\nsnapshots 0/s\ntick 4182 @ 20 Hz",
+    );
   });
 
   it("says nothing rather than zero before the first acknowledgement", () => {
     expect(formatDebug(createDebugMeter().read(), 20)).toContain("in→ack —");
+  });
+});
+
+describe("the worst frame", () => {
+  it("is the longest gap in the window, not the average the other line reports", () => {
+    const meter = createDebugMeter();
+    meter.frame(0);
+    // 60 Hz for most of the window with one 100 ms hitch in the middle of it: the kind of
+    // stall that is felt and that an average of thirty frames all but erases.
+    let now = 0;
+    for (let i = 0; i < 10; i += 1) meter.frame((now += 16));
+    meter.frame((now += 100));
+    while (now < FPS_WINDOW_MS) meter.frame((now += 16));
+    meter.frame(FPS_WINDOW_MS + 16);
+
+    expect(meter.read().worstFrameMs).toBe(100);
+  });
+
+  it("resets with the window, so a stall does not stay on screen after it is over", () => {
+    const meter = createDebugMeter();
+    meter.frame(0);
+    meter.frame(200);
+    meter.frame(FPS_WINDOW_MS);
+    // The 300 ms from the second frame to the window's close, not the 200 before it.
+    expect(meter.read().worstFrameMs).toBe(300);
+
+    // Past the next rollover, which is what republishes the number.
+    for (let now = FPS_WINDOW_MS + 16; now <= FPS_WINDOW_MS * 2 + 16; now += 16) meter.frame(now);
+    expect(meter.read().worstFrameMs).toBeLessThan(20);
+  });
+});
+
+describe("the snapshot rate", () => {
+  it("counts the snapshots that actually arrived in the window", () => {
+    const meter = createDebugMeter();
+    meter.frame(0);
+    // Ten snapshots in half a second is the 20 Hz the server says it ticks at.
+    for (let i = 0; i < 10; i += 1) meter.tick(i);
+    meter.frame(FPS_WINDOW_MS);
+
+    expect(meter.read().snapshotHz).toBe(20);
+  });
+
+  it("reports the shortfall when snapshots go missing", () => {
+    const meter = createDebugMeter();
+    meter.frame(0);
+    // Half of them lost: remote players stutter while the frame rate is untouched, which
+    // is the case no other number on the overlay distinguishes.
+    for (let i = 0; i < 5; i += 1) meter.tick(i);
+    meter.frame(FPS_WINDOW_MS);
+
+    expect(meter.read().snapshotHz).toBe(10);
   });
 });

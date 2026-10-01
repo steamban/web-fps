@@ -405,18 +405,33 @@ describe("entering a match", () => {
     expect(el("standings").hidden).toBe(true);
   });
 
-  it("shows the debug overlay only on a server that allows one", () => {
+  it("toggles the stats overlay on backquote, on any server", () => {
+    const press = () =>
+      window.dispatchEvent(new KeyboardEvent("keydown", { code: "Backquote", bubbles: true }));
+
     const socket = joinedLobby();
     socket.deliver(matchStart());
+    // Off until asked for, and asked for without the host hosting in dev mode: this is
+    // what a player reaches for to tell a frame rate problem from a network one.
     expect(el("debug").hidden).toBe(true);
+    press();
+    expect(el("debug").hidden).toBe(false);
+    press();
+    expect(el("debug").hidden).toBe(true);
+  });
 
-    socket.deliver(lobbyState({ debug: true }));
+  it("keeps the stats overlay up across the next match, and off the lobby", () => {
+    const socket = joinedLobby();
     socket.deliver(matchStart());
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "Backquote", bubbles: true }));
     expect(el("debug").hidden).toBe(false);
 
-    // And it goes with the match, rather than sitting over the lobby counting nothing.
-    socket.deliver(lobbyState({ phase: "waiting", debug: true }));
+    // It goes with the match rather than sitting over the lobby counting nothing, and
+    // comes back with the next one without being asked for twice.
+    socket.deliver(lobbyState({ phase: "waiting" }));
     expect(el("debug").hidden).toBe(true);
+    socket.deliver(matchStart());
+    expect(el("debug").hidden).toBe(false);
   });
 
   describe("the hud", () => {
