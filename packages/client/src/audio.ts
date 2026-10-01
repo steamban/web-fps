@@ -52,7 +52,9 @@ export function shotIsDue(
   stepMs: number,
 ): boolean {
   if (last === null) return true;
-  return (seq - last.seq) * stepMs >= LOADOUT[last.slot].fireIntervalMs;
+  // `fireCooldownTicks` verbatim, rather than a float product that compares equal to the
+  // interval at some tick rates and a hair under it at others.
+  return seq - last.seq >= Math.max(1, Math.ceil(LOADOUT[last.slot].fireIntervalMs / stepMs));
 }
 
 export interface Audio {
@@ -119,9 +121,13 @@ function envelope(ctx: AudioContext, peak: number, attackMs: number, decayMs: nu
   return gain;
 }
 
-/** Where a one-shot goes: straight out, or through a panner standing where the sound is. */
-function destination(ctx: AudioContext, out: AudioNode, at: Vec3 | undefined, reach: number) {
-  if (!at) return out;
+/**
+ * Where a one-shot starts: the match's own gain, or a panner standing where the sound is
+ * and feeding that gain. A panner is built per sound and nothing holds it once the voice
+ * through it has finished, so it goes when the voice does.
+ */
+function destination(ctx: AudioContext, master: GainNode, at: Vec3 | undefined, reach: number) {
+  if (!at) return master;
   const panner = ctx.createPanner();
   panner.panningModel = "HRTF";
   panner.distanceModel = "inverse";
@@ -131,7 +137,7 @@ function destination(ctx: AudioContext, out: AudioNode, at: Vec3 | undefined, re
   panner.positionX.value = at.x;
   panner.positionY.value = at.y;
   panner.positionZ.value = at.z;
-  panner.connect(out);
+  panner.connect(master);
   return panner;
 }
 
@@ -147,10 +153,13 @@ interface Burst {
 }
 
 /** A band of noise, played from a random offset into the shared buffer. */
-function burst(into: AudioNode, master: GainNode, spec: Burst): void {
+function burst(into: AudioNode, spec: Burst): void {
   const found = audio();
-  if (!found) return;
+  if (found === null) return;
   const { ctx, noise } = found;
+  // A suspended context's clock does not advance, so anything scheduled on one is
+  // scheduled at the same instant and goes off together the moment it resumes.
+  if (ctx.state !== "running") return;
   const at = ctx.currentTime;
 
   const filter = ctx.createBiquadFilter();
@@ -166,41 +175,36 @@ function burst(into: AudioNode, master: GainNode, spec: Burst): void {
   source
     .connect(filter)
     .connect(envelope(ctx, spec.peak, spec.attackMs, spec.decayMs))
-    .connect(master)
     .connect(into);
   source.start(at, Math.random() * (noise.duration - 0.3), (spec.attackMs + spec.decayMs) / 1000);
 }
 
 /** A falling sine, which is what gives a gunshot a body rather than a hiss. */
-function thump(into: AudioNode, master: GainNode, from: number, to: number, decayMs: number): void {
+function thump(into: AudioNode, from: number, to: number, decayMs: number): void {
   const found = audio();
-  if (!found) return;
+  if (found === null) return;
   const { ctx } = found;
+  if (ctx.state !== "running") return;
   const at = ctx.currentTime;
 
   const osc = ctx.createOscillator();
   osc.type = "sine";
   osc.frequency.setValueAtTime(from, at);
   osc.frequency.exponentialRampToValueAtTime(to, at + decayMs / 1000);
-  osc
-    .connect(envelope(ctx, 0.5, 3, decayMs))
-    .connect(master)
-    .connect(into);
+  osc.connect(envelope(ctx, 0.5, 3, decayMs)).connect(into);
   osc.start(at);
   osc.stop(at + (decayMs + 40) / 1000);
 }
 
-function tone(into: AudioNode, master: GainNode, hz: number, peak: number, decayMs: number): void {
+function tone(into: AudioNode, hz: number, peak: number, decayMs: number): void {
   const found = audio();
-  if (!found) return;
+  if (found === null) return;
   const { ctx } = found;
+  if (ctx.state !== "running") return;
   const osc = ctx.createOscillator();
   osc.type = "square";
   osc.frequency.value = hz;
-  osc
-    .connect(envelope(ctx, peak, 1, decayMs))
-    .connect(master)
-    .connect(into);
+  osc.connect(envelope(ctx, peak, 1, decayMs)).connect(into);
   osc.start(ctx.currentTime);
   osc.stop(ctx.currentTime + (decayMs + 40) / 1000);
 }
@@ -222,25 +226,29 @@ export function createAudio(): Audio {
   let master: GainNode | null = null;
   let leftFoot = false;
 
-  const chain = (): { ctx: AudioContext; out: AudioNode; master: GainNode } | null => {
+  const chain = (): { ctx: AudioContext; master: GainNode } | null => {
     const built = found();
     if (!built) return null;
     if (!master) {
       master = built.ctx.createGain();
       master.gain.value = 0.7;
+      // Once, here. Connecting it at the end of each voice instead would add an edge per
+      // sound, and every later sound would then be re-emitted from every panner built
+      // before it — the whole match playing back from everywhere anyone had ever stood.
+      master.connect(built.out);
     }
-    return { ctx: built.ctx, out: built.out, master };
+    return { ctx: built.ctx, master };
   };
 
   const gunshot = (slot: WeaponSlot, at?: Vec3): void => {
     const found = chain();
     if (!found) return;
-    const into = destination(found.ctx, found.out, at, 6);
+    const into = destination(found.ctx, found.master, at, 6);
     const voice = VOICE[slot];
     // Turned a little each time, so a held trigger is a weapon rather than a loop.
     const detune = 0.94 + Math.random() * 0.12;
 
-    burst(into, found.master, {
+    burst(into, {
       type: "highpass",
       from: voice.crack * detune,
       q: 0.7,
@@ -249,7 +257,7 @@ export function createAudio(): Audio {
       decayMs: slot === "melee" ? 120 : 60,
     });
     if (voice.thump === null) return;
-    burst(into, found.master, {
+    burst(into, {
       type: "lowpass",
       from: voice.body * detune,
       to: 180,
@@ -258,7 +266,7 @@ export function createAudio(): Audio {
       attackMs: 2,
       decayMs: 110,
     });
-    thump(into, found.master, voice.thump * detune, 55, 90);
+    thump(into, voice.thump * detune, 55, 90);
   };
 
   return {
@@ -293,7 +301,7 @@ export function createAudio(): Audio {
       const found = chain();
       if (!found) return;
       leftFoot = !leftFoot;
-      burst(destination(found.ctx, found.out, at, 2), found.master, {
+      burst(destination(found.ctx, found.master, at, 2), {
         type: "bandpass",
         // Two feet: an identical click repeated is a machine, not a person walking.
         from: leftFoot ? 390 : 455,
@@ -308,7 +316,7 @@ export function createAudio(): Audio {
     land(): void {
       const found = chain();
       if (!found) return;
-      burst(found.out, found.master, {
+      burst(found.master, {
         type: "bandpass",
         from: 260,
         q: 1.2,
@@ -322,8 +330,8 @@ export function createAudio(): Audio {
       const found = chain();
       if (!found) return;
       // A fifth apart, flat and short — heard over a firefight without being part of it.
-      tone(found.out, found.master, 1760, 0.22, 70);
-      tone(found.out, found.master, 2640, 0.1, 50);
+      tone(found.master, 1760, 0.22, 70);
+      tone(found.master, 2640, 0.1, 50);
     },
 
     dispose(): void {
