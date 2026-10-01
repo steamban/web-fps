@@ -1,0 +1,14 @@
+# Live-reload override: `docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build`.
+# The default compose file builds the client into the image, which is what a host wants and
+# what nobody wants while editing. Plain `npm run dev` is faster still; this is for working
+# against the same Node and Alpine the host runs.
+services:
+  server:
+    build:
+      dockerfile: Dockerfile.dev
+    # Only source is mounted. Dependencies stay exactly as the image installed them,
+    # so there is nothing to shadow and no anonymous volume to go stale across a
+    # rebuild — change a dependency and `--build` is enough.
+    volumes:
+      - ./packages/shared/src:/app/packages/shared/src
+      - ./packages/server/src:/app/packages/server/src

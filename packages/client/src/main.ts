@@ -438,6 +438,11 @@ ui.pause.addEventListener("click", () =>
   send({ type: "pause", paused: current?.phase !== "paused" }),
 );
 
+// A built client is only ever served by the game server itself, so the address is the one
+// the player already typed into the URL bar — fill it in and let them press Join. The dev
+// server is the other origin this page is served from, and there the server is elsewhere.
+if (!import.meta.env.DEV) ui.address.value = location.host;
+
 ui.form.addEventListener("submit", (event) => {
   event.preventDefault();
 
