@@ -9,6 +9,7 @@ import {
   stepMovement,
 } from "@web-fps/shared";
 import { describe, expect, it } from "vitest";
+import { reloadTicks } from "./combat";
 import { loadConfig } from "./config";
 import {
   createGame,
@@ -42,6 +43,7 @@ const input = (playerId: PlayerId, seq: number, over: Partial<PlayerInput> = {})
   yaw: 0,
   pitch: 0,
   fire: null,
+  reload: null,
   ...over,
 });
 
@@ -590,6 +592,75 @@ describe("a reload", () => {
       magazine: 0,
       reserve: 0,
     });
+  });
+});
+
+describe("a reload asked for on R", () => {
+  const size = LOADOUT.primary.magazineSize ?? 0;
+
+  /** A match at tick 0 with one player carrying a partial primary magazine. */
+  const partial = (magazine: number, reserve = 120, reloadingUntilTick = 0): GameState => {
+    const game = createGame(SANDBOX_MAP, ["p1"], RULES);
+    return {
+      ...game,
+      players: game.players.map((player) => ({
+        ...player,
+        ammo: { ...player.ammo, primary: { magazine, reserve, reloadingUntilTick } },
+      })),
+    };
+  };
+
+  const ask = (state: GameState, slot: "primary" | "secondary" | "melee" = "primary") =>
+    find(step(state, [input("p1", 1, { reload: slot })], DT), "p1").ammo;
+
+  it("starts the clock without moving a round, and fills the magazine when it comes due", () => {
+    const started = ask(partial(9)).primary;
+    // The request only writes the clock: one place fills a magazine, and it is the pass
+    // that checks the clock has come due.
+    expect(started).toMatchObject({ magazine: 9, reserve: 120 });
+    expect(started.reloadingUntilTick).toBe(1 + reloadTicks("primary", DT));
+
+    const due: GameState = {
+      ...partial(9, 120, started.reloadingUntilTick),
+      tick: started.reloadingUntilTick - 1,
+    };
+    const filled = find(step(due, [], DT), "p1").ammo.primary;
+    // Topped up, not replaced: the nine rounds already in it stay there and only the
+    // difference comes out of the reserve.
+    expect(filled).toMatchObject({ magazine: size, reserve: 120 - (size - 9) });
+  });
+
+  it("is refused when there is nothing to gain or nothing to gain it from", () => {
+    // A full magazine, which is the key being leaned on between firefights.
+    expect(ask(partial(size)).primary.reloadingUntilTick).toBe(0);
+    // An empty reserve, which would otherwise start a clock that fills nothing.
+    expect(ask(partial(9, 0)).primary.reloadingUntilTick).toBe(0);
+    // The knife draws from no ammunition at all.
+    expect(ask(partial(9), "melee").primary.reloadingUntilTick).toBe(0);
+  });
+
+  it("cannot be shortened by asking again while one is running", () => {
+    const running = 40;
+    expect(ask(partial(9, 120, running)).primary.reloadingUntilTick).toBe(running);
+  });
+
+  it("spends the round first when the same frame fires and reloads", () => {
+    const both = find(
+      step(partial(9), [input("p1", 1, { fire: "primary", reload: "primary" })], DT),
+      "p1",
+    ).ammo.primary;
+    expect(both.magazine).toBe(8);
+    expect(both.reloadingUntilTick).toBe(1 + reloadTicks("primary", DT));
+  });
+
+  it("leaves the clock the emptying shot set rather than starting a second one", () => {
+    const last = find(
+      step(partial(1), [input("p1", 1, { fire: "primary", reload: "primary" })], DT),
+      "p1",
+    ).ammo.primary;
+    // One reload, at the automatic one's length: a player who taps R as the magazine runs
+    // out must not get a different reload from one who does not.
+    expect(last).toMatchObject({ magazine: 0, reloadingUntilTick: 1 + reloadTicks("primary", DT) });
   });
 });
 

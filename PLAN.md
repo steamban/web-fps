@@ -935,6 +935,46 @@ exists, the condition that would reverse it.
   Vite dev server is the point of working that way at all.
 
 
+### Post-M7 — what playing it on two machines turned up
+
+- **The stats overlay is a player's key, not the host's config.** It was gated behind the
+  host's `GAME_MODE=dev`, which made it useless for the one thing it is for: a player on
+  the far end of a link says the game is laggy, and the numbers that would say whether
+  that is their frame rate or the network need the host to restart the server first. It
+  toggles on backquote in any match now. The hitbox wireframes stay gated, because seeing
+  the boxes the server raycasts is an advantage and the frame counter is not.
+- **The overlay carries the worst frame and the measured snapshot rate, because an average
+  answers neither complaint.** "Not a constant 60" is a hitch, and thirty frames averaged
+  over half a second erase it — the longest single frame in the window is the number that
+  shows it. Remote players stuttering while the local frame rate is untouched is snapshots
+  arriving late or not at all, which no other number on screen distinguishes: it is
+  counted rather than assumed, and printed beside the tick rate it is supposed to match.
+  Nothing locks the frame rate — the loop is `setAnimationLoop`, which is vsync — so the
+  overlay is the measurement, not a workaround.
+- **Manual reload is a slot on the input frame, like `fire`.** The server deliberately
+  keeps no idea which weapon anybody is holding, so a boolean would not say what to
+  reload. It is refused on a full magazine, an empty reserve, a knife, or a reload already
+  running, which means a client can send it every frame and get exactly one reload, never
+  a shorter one.
+- **The request writes only the clock; `reloadDue` still does all the filling.** What a
+  reload *is* moved from "the magazine is empty" to "`reloadingUntilTick` is pending",
+  because a manual reload runs on a partial magazine that is otherwise indistinguishable
+  from one standing still. The fill generalises from "take a magazine out of the reserve"
+  to "top up to full and take the difference", which is the same arithmetic for the empty
+  case the automatic reload always handled. A frame that fires and reloads together spends
+  the round first, and one whose shot empties the magazine finds the clock already running
+  and asks for nothing — so tapping R as the last round goes gives the same reload as not
+  tapping it.
+- **`Ammo.readyAtTick` is the field M6 argued against, and the argument is what changed.**
+  "A magazine at zero with rounds in reserve *is* a reload in flight" held exactly as long
+  as the only reload was the automatic one. It is no longer derivable, so the fact is sent
+  — in the `respawnAtTick` shape, a tick the recipient subtracts from the snapshot's own,
+  rather than a boolean, so a progress bar needs no second frame to arrive.
+- **`PROTOCOL_VERSION` 5 → 6.** Both changes are wire changes, and a client built before
+  them sends no `reload` and reads no `readyAtTick`; the join handshake refusing it is
+  cheaper than either end guessing.
+
+
 ## Technical details
 
 Finer-grained practices worth locking in now, since they're much cheaper to follow from M0 than to retrofit after M3.

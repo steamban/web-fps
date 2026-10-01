@@ -325,10 +325,10 @@ function renderHud(self: SnapshotPlayer | undefined, ammo: Snapshot["ammo"]): vo
   ui.reserve.hidden = held === null;
   if (!held) return;
   ui.magazine.textContent = String(held.magazine);
-  // A magazine at zero with rounds still in reserve is a reload in flight — the server
-  // puts the fresh one in the moment its clock allows, so there is nothing else it can be.
-  ui.reserve.textContent =
-    held.magazine === 0 && held.reserve > 0 ? "reloading" : `/ ${held.reserve}`;
+  // The server says so outright now that R can start one on a magazine that is not empty:
+  // a partial magazine reloading and a partial magazine standing still look identical from
+  // the counts alone.
+  ui.reserve.textContent = held.readyAtTick === null ? `/ ${held.reserve}` : "reloading";
 }
 
 /**

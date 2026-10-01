@@ -21,6 +21,7 @@ const validInput = {
   yaw: 1.2,
   pitch: -0.4,
   fire: null,
+  reload: null,
 };
 
 describe("decodeClientMessage", () => {
@@ -178,7 +179,10 @@ describe("decodeServerMessage", () => {
     type: "snapshot" as const,
     tick: 120,
     ackSeq: 7,
-    ammo: { primary: { magazine: 23, reserve: 120 }, secondary: { magazine: 12, reserve: 60 } },
+    ammo: {
+      primary: { magazine: 23, reserve: 120, readyAtTick: null },
+      secondary: { magazine: 12, reserve: 60, readyAtTick: 118 },
+    },
     players: [player],
   };
 

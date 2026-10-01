@@ -449,9 +449,9 @@ describe("entering a match", () => {
       score: 0,
       deaths: 0,
     });
-    const ammo = (magazine: number, reserve: number) => ({
-      primary: { magazine, reserve },
-      secondary: { magazine: 12, reserve: 60 },
+    const ammo = (magazine: number, reserve: number, readyAtTick: number | null = null) => ({
+      primary: { magazine, reserve, readyAtTick },
+      secondary: { magazine: 12, reserve: 60, readyAtTick: null },
     });
 
     const playing = () => {
@@ -489,13 +489,24 @@ describe("entering a match", () => {
       expect(el("health").classList.contains("low")).toBe(true);
     });
 
-    it("says a magazine with rounds behind it is reloading", () => {
+    it("says a magazine is reloading whenever the server has a clock running on it", () => {
       const socket = playing();
       socket.deliver({
         type: "snapshot",
         tick: 4,
         ackSeq: 1,
-        ammo: ammo(0, 120),
+        ammo: ammo(0, 120, 40),
+        players: [alive(100)],
+      });
+      expect(el("reserve").textContent).toBe("reloading");
+
+      // A half-full magazine reloading on R, which the counts alone cannot tell from one
+      // standing still — the whole reason the server says so outright.
+      socket.deliver({
+        type: "snapshot",
+        tick: 5,
+        ackSeq: 1,
+        ammo: ammo(17, 120, 41),
         players: [alive(100)],
       });
       expect(el("reserve").textContent).toBe("reloading");
@@ -503,7 +514,7 @@ describe("entering a match", () => {
       // Nothing left to put in it, and nothing coming.
       socket.deliver({
         type: "snapshot",
-        tick: 5,
+        tick: 6,
         ackSeq: 1,
         ammo: ammo(0, 0),
         players: [alive(100)],

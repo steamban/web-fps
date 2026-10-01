@@ -52,6 +52,9 @@ const SLOT_KEYS: Readonly<Record<string, WeaponSlot>> = {
   Digit3: "melee",
 };
 
+/** R, the one every shooter uses. Not a slot key, so it reloads whatever is in hand. */
+export const RELOAD_KEY = "KeyR";
+
 export function slotKey(code: string): WeaponSlot | null {
   return SLOT_KEYS[code] ?? null;
 }
@@ -70,6 +73,13 @@ export interface Controls {
    * invisible in the held state, and a shot swallowed is worse than a jump swallowed.
    */
   fire(): WeaponSlot | null;
+  /**
+   * The weapon this step asked to reload, or null. Latched and consumed exactly like the
+   * trigger, because R is a tap and a 50 ms step is easy to miss it in. It is the carried
+   * weapon rather than a key per slot: nobody reloads a gun they are not holding, and the
+   * server would refuse one that is already full anyway.
+   */
+  reload(): WeaponSlot | null;
   /** The weapon being carried. Read by the HUD, which is the only thing outside this file
    *  that has ever needed to know: the server is told which weapon fired on the frame
    *  that fired it and keeps no equipped state of its own. */
@@ -107,6 +117,7 @@ export function createControls(canvas: HTMLElement, startYaw: number): Controls 
   let slot: WeaponSlot = "primary";
   let triggerHeld = false;
   let tappedTrigger = false;
+  let tappedReload = false;
 
   const setKey = (event: KeyboardEvent, down: boolean): void => {
     const field = keyField(event.code);
@@ -123,6 +134,10 @@ export function createControls(canvas: HTMLElement, startYaw: number): Controls 
       slot = weapon;
       return;
     }
+    if (event.code === RELOAD_KEY) {
+      tappedReload = true;
+      return;
+    }
     setKey(event, true);
   };
   const onKeyUp = (event: KeyboardEvent): void => setKey(event, false);
@@ -132,6 +147,7 @@ export function createControls(canvas: HTMLElement, startYaw: number): Controls 
   const onBlur = (): void => {
     held = { ...NOTHING_HELD };
     tappedJump = false;
+    tappedReload = false;
     triggerHeld = false;
     tappedTrigger = false;
   };
@@ -193,6 +209,11 @@ export function createControls(canvas: HTMLElement, startYaw: number): Controls 
       const pulled = triggerHeld || tappedTrigger;
       tappedTrigger = false;
       return pulled ? slot : null;
+    },
+    reload: () => {
+      const asked = tappedReload;
+      tappedReload = false;
+      return asked ? slot : null;
     },
     dispose(): void {
       window.removeEventListener("keydown", onKeyDown);

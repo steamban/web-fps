@@ -294,6 +294,27 @@ describe("createControls", () => {
     expect(controls.fire()).toBe("secondary");
   });
 
+  it("reports a tapped reload once, for the weapon in hand", () => {
+    controls = createControls(canvas(), 0);
+    press("KeyR");
+    expect(controls.reload()).toBe("primary");
+    // Consumed by the read, like the trigger and the jump: two steps must not ask the
+    // server for two reloads off one tap.
+    expect(controls.reload()).toBeNull();
+
+    press("Digit2");
+    press("KeyR");
+    expect(controls.reload()).toBe("secondary");
+  });
+
+  it("drops a tapped reload when the window goes away", () => {
+    controls = createControls(canvas(), 0);
+    press("KeyR");
+    window.dispatchEvent(new Event("blur"));
+    // Alt-tabbing away is not a reload to run on the way back, any more than it is a jump.
+    expect(controls.reload()).toBeNull();
+  });
+
   it("hands out a snapshot a caller cannot write back through", () => {
     controls = createControls(canvas(), 0);
     controls.keys().forward = true;

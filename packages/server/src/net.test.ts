@@ -295,7 +295,7 @@ describe("wire rejections", () => {
     await lobbyState(client);
 
     // Trigger pulled too: a shot rides its input frame, so it is dropped with it.
-    client.send({ type: "input", seq: 1, keys: HELD, yaw: 0, pitch: 0, fire: "primary" });
+    client.send({ type: "input", seq: 1, keys: HELD, yaw: 0, pitch: 0, fire: "primary", reload: null });
 
     // A client whose loop starts a tick early is not a client to disconnect.
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -366,7 +366,7 @@ describe("a running match", () => {
     await waitFor(() => snapshots(host).at(-1), "first snapshot");
 
     for (let seq = 1; seq <= 4; seq += 1) {
-      host.send({ type: "input", seq, keys: HELD, yaw: 0, pitch: 0, fire: null });
+      host.send({ type: "input", seq, keys: HELD, yaw: 0, pitch: 0, fire: null, reload: null });
     }
 
     const acked = await waitFor(() => snapshots(host).find((s) => s.ackSeq === 4), "ack of seq 4");
@@ -382,7 +382,7 @@ describe("a running match", () => {
     await lobbyState(host, (s) => s.phase === "paused");
 
     const atPause = snapshots(host).at(-1);
-    host.send({ type: "input", seq: 1, keys: HELD, yaw: 0, pitch: 0, fire: null });
+    host.send({ type: "input", seq: 1, keys: HELD, yaw: 0, pitch: 0, fire: null, reload: null });
     await new Promise((resolve) => setTimeout(resolve, 6 * solo.tickIntervalMs));
     expect(snapshots(host).at(-1)).toEqual(atPause);
 
@@ -417,6 +417,7 @@ describe("a running match", () => {
       yaw: -Math.PI / 2,
       pitch: 0,
       fire: "primary",
+      reload: null,
     });
 
     const hit = await waitFor(
@@ -454,6 +455,7 @@ describe("a running match", () => {
         yaw: -Math.PI / 2,
         pitch: 0,
         fire: "primary",
+        reload: null,
       });
     }, 20);
     teardown.push(async () => clearInterval(shots));

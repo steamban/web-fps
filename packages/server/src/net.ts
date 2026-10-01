@@ -265,6 +265,7 @@ export function attachLobbyServer(httpServer: Server, config: Config): LobbyServ
       yaw: message.yaw,
       pitch: message.pitch,
       fire: message.fire,
+      reload: message.reload,
     });
     if (queue.length > maxQueuedInputs) queue.splice(0, queue.length - maxQueuedInputs);
     queues.set(playerId, queue);

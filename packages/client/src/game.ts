@@ -161,8 +161,12 @@ export function startGame(options: GameOptions): Game {
     // so a shot belongs to exactly one frame. `pending` never carries it — a replayed
     // frame is a movement replay, and must not fire a second round.
     const fire = controls.fire();
+    // Likewise consumed by the read. Nothing local acts on it: the magazine belongs to the
+    // server, which may refuse the request outright, and a HUD that started a reload the
+    // server never ran would count down to a magazine that stayed empty.
+    const reload = controls.reload();
     seq += 1;
-    send({ type: "input", seq, keys, yaw, pitch, fire });
+    send({ type: "input", seq, keys, yaw, pitch, fire, reload });
     pending = [...pending, { seq, keys, yaw, sentAt: performance.now() }];
 
     if (fire !== null && hasRounds(fire) && shotIsDue(lastShot, seq, stepMs)) {
@@ -278,6 +282,7 @@ export function startGame(options: GameOptions): Game {
       // nothing otherwise, and would go off on the first step afterwards.
       controls.keys();
       controls.fire();
+      controls.reload();
       accumulated = 0;
     }
 

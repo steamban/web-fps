@@ -22,7 +22,7 @@ import {
   type WeaponSlot,
   wrapAngle,
 } from "@web-fps/shared";
-import { resolveShots, type Shot } from "./combat";
+import { reloadTicks, resolveShots, type Shot } from "./combat";
 import type { Config } from "./config";
 
 /**
@@ -44,6 +44,8 @@ export interface PlayerInput {
   readonly pitch: number;
   /** The weapon this frame fired, or null for a frame that held its fire. */
   readonly fire: WeaponSlot | null;
+  /** The weapon this frame asked to reload, or null. Refused unless `startReloads` allows it. */
+  readonly reload: WeaponSlot | null;
 }
 
 /**
@@ -224,6 +226,9 @@ export function simulate(
   // has a different aim, and dragging the bullet onto it would hit what the player had not
   // aimed at yet.
   const requested = new Map<PlayerId, Shot>();
+  // Likewise one reload per player per tick, and for the simpler reason that the second
+  // would be refused as "already reloading" the moment the first took.
+  const reloads = new Map<PlayerId, WeaponSlot>();
 
   const moved: GameState = {
     ...state,
@@ -266,6 +271,7 @@ export function simulate(
             direction: aimDirection(yaw, input.pitch),
           });
         }
+        if (input.reload !== null) reloads.set(player.id, input.reload);
       }
 
       // Gravity only advances inside a step, so a player whose frame was late or dropped
@@ -283,16 +289,19 @@ export function simulate(
   // on it — refilling afterwards would make every reload one tick longer than the clock
   // the shot that emptied it charged.
   const resolved = resolveShots(reloadDue(moved), requested, dtMs);
+  // After the shots: a frame that both fires and reloads spends the round first, and one
+  // whose shot emptied the magazine finds the clock already running and asks for nothing.
+  const reloading = startReloads(resolved.state, reloads, dtMs);
   // A respawn is already on the wire as `respawnAtTick` counting down on the snapshot, so
   // it produces no event of its own — see the M5 design log.
-  return { state: respawnDue(resolved.state), events: resolved.events };
+  return { state: respawnDue(reloading), events: resolved.events };
 }
 
 /**
- * Puts a fresh magazine in every slot whose reload has come due: emptied, something left
- * in reserve, and past the tick the emptying shot charged.
+ * Puts the rounds in every slot whose reload has come due: a clock pending, something left
+ * in reserve, and past the tick that clock named.
  *
- * It refills every dry slot rather than the one being carried, because the server has no
+ * It refills every due slot rather than the one being carried, because the server has no
  * idea which that is — the weapon rides each input frame precisely so that it needs no
  * equipped state to keep in step (M4). It costs nothing: a slot only goes dry by being
  * fired, and a partial reserve is taken as far as it goes and then the slot is dead.
@@ -300,7 +309,9 @@ export function simulate(
 function reloadDue(state: GameState): GameState {
   const isDue = (ammo: SlotAmmo, slot: WeaponSlot): boolean =>
     usesAmmo(slot) &&
-    ammo.magazine === 0 &&
+    // A pending clock, rather than an empty magazine, is now what a reload *is*: a manual
+    // one runs on a partial magazine, which is indistinguishable from one standing still.
+    ammo.reloadingUntilTick > 0 &&
     ammo.reserve > 0 &&
     state.tick >= ammo.reloadingUntilTick;
 
@@ -316,14 +327,55 @@ function reloadDue(state: GameState): GameState {
       for (const slot of WEAPON_SLOTS) {
         const held = ammo[slot];
         if (!isDue(held, slot)) continue;
-        const rounds = Math.min(LOADOUT[slot].magazineSize ?? 0, held.reserve);
+        // Topped up, not replaced: a manual reload keeps what is already in the magazine
+        // and takes the difference out of the reserve. An emptied one has nothing to keep,
+        // so this is the same arithmetic the automatic reload always did.
+        const filled = Math.min(LOADOUT[slot].magazineSize ?? 0, held.magazine + held.reserve);
         ammo[slot] = {
-          magazine: rounds,
-          reserve: held.reserve - rounds,
+          magazine: filled,
+          reserve: held.reserve - (filled - held.magazine),
           reloadingUntilTick: 0,
         };
       }
       return { ...player, ammo };
+    }),
+  };
+}
+
+/**
+ * Starts the reloads this tick asked for. Refused when the magazine is already full, when
+ * there is nothing in reserve to put in it, when a reload is already running, or when the
+ * weapon draws from no ammunition at all — a client can send `reload` every frame and get
+ * one reload, not a shorter one.
+ *
+ * The clock is all this writes. `reloadDue` is what moves the rounds, on this tick's own
+ * pass for an automatic reload and a later one for this, so there is exactly one place a
+ * magazine is ever filled.
+ */
+function startReloads(
+  state: GameState,
+  reloads: ReadonlyMap<PlayerId, WeaponSlot>,
+  dtMs: number,
+): GameState {
+  if (reloads.size === 0) return state;
+
+  return {
+    ...state,
+    players: state.players.map((player) => {
+      const slot = reloads.get(player.id);
+      if (slot === undefined || !usesAmmo(slot)) return player;
+
+      const held = player.ammo[slot];
+      const full = held.magazine >= (LOADOUT[slot].magazineSize ?? 0);
+      if (full || held.reserve === 0 || held.reloadingUntilTick > 0) return player;
+
+      return {
+        ...player,
+        ammo: {
+          ...player.ammo,
+          [slot]: { ...held, reloadingUntilTick: state.tick + reloadTicks(slot, dtMs) },
+        },
+      };
     }),
   };
 }
@@ -456,8 +508,16 @@ const snapshotOf = (player: PlayerSimState, tick: number): SnapshotPlayer => ({
   spawnProtected: isSpawnProtected(player, tick),
 });
 
-/** What of a slot's ammunition the wire carries: how much is there, not what it is doing. */
-const rounds = (ammo: SlotAmmo): Ammo => ({ magazine: ammo.magazine, reserve: ammo.reserve });
+/**
+ * What of a slot's ammunition the wire carries. `reloadingUntilTick` is 0 for "nothing
+ * pending" inside the simulation and null on the wire, because a tick of 0 is a real tick
+ * and the recipient compares it against the snapshot's own.
+ */
+const rounds = (ammo: SlotAmmo): Ammo => ({
+  magazine: ammo.magazine,
+  reserve: ammo.reserve,
+  readyAtTick: ammo.reloadingUntilTick === 0 ? null : ammo.reloadingUntilTick,
+});
 
 /** Derived, never stored, for the reason `alive` is: one fact, one place it is decided. */
 export const isSpawnProtected = (player: PlayerSimState, tick: number): boolean =>

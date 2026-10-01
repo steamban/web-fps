@@ -12,7 +12,7 @@ import { WEAPON_SLOTS } from "./weapons";
  */
 
 /** Bumped on any incompatible wire change; mismatched clients are rejected at `join`. */
-export const PROTOCOL_VERSION = 5 as const;
+export const PROTOCOL_VERSION = 6 as const;
 
 /** Path the WebSocket endpoint is mounted at. Both sides read it from here so it cannot drift. */
 export const WS_PATH = "/ws";
@@ -87,6 +87,14 @@ export const InputMessageSchema = z.object({
   yaw: YawSchema,
   pitch: PitchSchema,
   fire: WeaponSlotSchema.nullable(),
+  /**
+   * The weapon this frame asked to reload, or null. A slot rather than a boolean for the
+   * same reason `fire` is one: the server keeps no idea which weapon anybody is holding,
+   * so the frame has to say. The server refuses the request when the magazine is already
+   * full, the reserve is empty, or a reload is already running — a client that asks twice
+   * cannot shorten one, and one that asks at the wrong moment is simply ignored.
+   */
+  reload: WeaponSlotSchema.nullable(),
 });
 
 export const StartMessageSchema = z.object({ type: z.literal("start") });
@@ -181,17 +189,22 @@ export type SnapshotPlayer = z.infer<typeof SnapshotPlayerSchema>;
 export const AmmoSchema = z.object({
   magazine: z.number().int().nonnegative(),
   reserve: z.number().int().nonnegative(),
+  /**
+   * Tick the fresh magazine goes in, or null when nothing is being reloaded. The snapshot
+   * carries the tick it was taken at, so the client subtracts the two for the progress on
+   * screen — the same shape `respawnAtTick` uses, and for the same reason.
+   *
+   * It exists because a manual reload broke what used to derive it: an empty magazine
+   * with rounds in reserve *was* a reload in flight, and nothing else was, but a partial
+   * magazine reloading looks exactly like a partial magazine standing still.
+   */
+  readyAtTick: z.number().int().nonnegative().nullable(),
 });
 export type Ammo = z.infer<typeof AmmoSchema>;
 
 /**
  * What the recipient is carrying. Melee is left out because it draws from nothing —
  * `usesAmmo` is the one place the table says so.
- *
- * Reloading is not a field: a magazine at zero with rounds still in reserve *is* a reload
- * in progress, because the server puts the fresh magazine in the moment the clock allows
- * it. Two fields for one fact disagree as soon as a write site updates one of them —
- * `alive` and `spawnProtected` are derived for the same reason.
  */
 export const SelfAmmoSchema = z.object({
   primary: AmmoSchema,

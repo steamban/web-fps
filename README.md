@@ -85,8 +85,15 @@ else sees the player list. Open a second browser tab to play both sides — or s
 `GAME_MODE=dev` to start a match on your own.
 
 Once the host presses Start you are in the map: click to capture the mouse, WASD and
-Space to move, click to fire, 1, 2 and 3 to switch between the SMG, the pistol and the
-knife, Tab to see the scores, Esc to release the mouse. The host keeps Pause and Close in
+Space to move, click to fire, R to reload, 1, 2 and 3 to switch between the SMG, the
+pistol and the knife, Tab to see the scores, backquote for the stats overlay, Esc to
+release the mouse. An empty magazine still reloads on its own; R is for topping one up
+before the next fight rather than during it.
+
+The stats overlay is what to read when the game feels slow, and it separates the two
+faults that feel alike: `fps` with the worst frame in the last half second beside it is
+this machine, and `snapshots/s` falling below the tick rate printed under it is the
+network. The host keeps Pause and Close in
 the top-right corner.
 
 **Movement sandbox** — the button under Join. It needs no server at all: it drops you into
