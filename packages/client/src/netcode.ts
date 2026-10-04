@@ -114,8 +114,9 @@ export function interpolatePlayers(
   // Clamped, so a stall freezes everyone where they were last seen instead of projecting
   // them through the geometry and snapping them back when the next snapshot lands.
   const t = Math.min(Math.max(fraction, 0), 1);
-  const before = new Map(previous.map((player) => [player.id, player]));
 
+  // A linear scan, not a Map: `previous` holds at most a handful of players, and building
+  // a lookup table per frame costs more than just scanning it costs here.
   // Driven by the latest snapshot, so somebody who has left stops being drawn at once —
   // and so is somebody who has died, who is not anywhere until M5 respawns them.
   return latest
@@ -125,8 +126,8 @@ export function interpolatePlayers(
       // beats streaking them in from the map's origin. A player who was dead in the
       // previous one is the same case: they come back somewhere else entirely, and
       // interpolating would walk the body across the map to meet them.
-      const previous = before.get(player.id);
-      const from = previous?.alive ? previous : player;
+      const before = previous.find((p) => p.id === player.id);
+      const from = before?.alive ? before : player;
       return {
         id: player.id,
         position: lerpVec3(from.position, player.position, t),
