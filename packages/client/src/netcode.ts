@@ -43,7 +43,7 @@ export interface PendingInput {
 export interface Reconciled {
   readonly state: MovementState;
   /** What is still unacknowledged, and so still has to be replayed next time. */
-  readonly pending: readonly PendingInput[];
+  readonly pending: PendingInput[];
 }
 
 /**

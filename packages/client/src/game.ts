@@ -120,7 +120,7 @@ export function startGame(options: GameOptions): Game {
   let predicted: MovementState = spawnState(spawn);
   /** Where the player was a step ago; the camera is drawn between the two. */
   let stepStart: MovementState = predicted;
-  let pending: readonly PendingInput[] = [];
+  let pending: PendingInput[] = [];
   let seq = 0;
 
   let previous: Received | null = null;
@@ -167,7 +167,7 @@ export function startGame(options: GameOptions): Game {
     const reload = controls.reload();
     seq += 1;
     send({ type: "input", seq, keys, yaw, pitch, fire, reload });
-    pending = [...pending, { seq, keys, yaw, sentAt: performance.now() }];
+    pending.push({ seq, keys, yaw, sentAt: performance.now() });
 
     if (fire !== null && hasRounds(fire) && shotIsDue(lastShot, seq, stepMs)) {
       // On the trigger, not on a server frame: your own weapon is the one place a tick of
