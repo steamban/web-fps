@@ -23,6 +23,7 @@ import {
   roundRules,
   simulate,
   snapshotFor,
+  snapshotPlayers,
 } from "./simulation";
 
 /**
@@ -77,7 +78,7 @@ const standAt = (state: GameState, id: PlayerId, x: number, z: number): GameStat
 
 /** One player's line of a snapshot, which is where `spawnProtected` is derived. */
 const snapshotOf = (state: GameState, id: PlayerId) => {
-  const message = snapshotFor(state, id);
+  const message = snapshotFor(state, id, snapshotPlayers(state));
   return message.type === "snapshot"
     ? message.players.find((player) => player.id === id)
     : undefined;
@@ -381,17 +382,22 @@ describe("snapshotFor", () => {
   it("acks the recipient's own last simulated input and nobody else's", () => {
     const state = step(gameOf("p1", "p2"), [input("p1", 4), input("p2", 9)], DT);
 
-    expect(snapshotFor(state, "p1")).toMatchObject({ type: "snapshot", tick: 1, ackSeq: 4 });
-    expect(snapshotFor(state, "p2")).toMatchObject({ ackSeq: 9 });
+    expect(snapshotFor(state, "p1", snapshotPlayers(state))).toMatchObject({
+      type: "snapshot",
+      tick: 1,
+      ackSeq: 4,
+    });
+    expect(snapshotFor(state, "p2", snapshotPlayers(state))).toMatchObject({ ackSeq: 9 });
   });
 
   it("acks nothing for a player the server has not simulated an input from", () => {
-    expect(snapshotFor(gameOf("p1"), "p1")).toMatchObject({ ackSeq: 0 });
+    const state = gameOf("p1");
+    expect(snapshotFor(state, "p1", snapshotPlayers(state))).toMatchObject({ ackSeq: 0 });
   });
 
   it("carries the state a recipient needs to replay its own inputs", () => {
     const state = jumped();
-    const snapshot = snapshotFor(state, "p1");
+    const snapshot = snapshotFor(state, "p1", snapshotPlayers(state));
     const player = snapshot.type === "snapshot" ? snapshot.players[0] : undefined;
 
     expect(player).toMatchObject({
@@ -413,13 +419,15 @@ describe("snapshotFor", () => {
   it("reports a player at zero health as dead", () => {
     // `alive` is derived rather than stored: two representations of one fact disagree the
     // moment a write site updates one of them.
-    const snapshot = snapshotFor(kill(gameOf("p1"), "p1"), "p1");
+    const killed = kill(gameOf("p1"), "p1");
+    const snapshot = snapshotFor(killed, "p1", snapshotPlayers(killed));
     const player = snapshot.type === "snapshot" ? snapshot.players[0] : undefined;
     expect(player).toMatchObject({ health: 0, alive: false });
   });
 
   it("describes every player, not just the recipient", () => {
-    const snapshot = snapshotFor(gameOf("p1", "p2"), "p1");
+    const state = gameOf("p1", "p2");
+    const snapshot = snapshotFor(state, "p1", snapshotPlayers(state));
     expect(snapshot.type === "snapshot" && snapshot.players.map((p) => p.id)).toEqual(["p1", "p2"]);
   });
 });

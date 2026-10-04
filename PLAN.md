@@ -973,6 +973,18 @@ exists, the condition that would reverse it.
 - **`PROTOCOL_VERSION` 5 → 6.** Both changes are wire changes, and a client built before
   them sends no `reload` and reads no `readyAtTick`; the join handshake refusing it is
   cheaper than either end guessing.
+- **A performance pass found three allocation hotspots worth fixing, and left the rest alone.**
+  `snapshotFor` was rebuilding the whole player list from scratch once per recipient
+  (`state.players.map(snapshotOf)` inside the per-client loop) — N² work for what one shared
+  array per tick does just as well; `net.ts` now computes it once (`snapshotPlayers`) and
+  passes it to every `snapshotFor` call. `interpolatePlayers` was rebuilding a `Map` every
+  render frame to look up at most a handful of remote players; a linear `find()` is cheaper
+  at that size and the Map served no purpose a scan doesn't. `game.ts`'s pending-input queue
+  was doing `[...pending, x]` per simulated step — a full copy to append one item — now
+  `pending.push(x)`. Left alone: the full-state (non-delta, JSON) snapshot wire format and
+  the per-substep `Aabb`/`Vec3` allocations in collision/movement — both are real tradeoffs,
+  not bugs, and neither matters at this project's player/map counts; revisit only if either
+  scale grows well past 8 players or the current sandbox map's size.
 
 
 ## Technical details

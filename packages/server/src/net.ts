@@ -27,6 +27,7 @@ import {
   roundRules,
   simulate,
   snapshotFor,
+  snapshotPlayers,
 } from "./simulation";
 
 /**
@@ -138,7 +139,8 @@ export function attachLobbyServer(httpServer: Server, config: Config): LobbyServ
 
     const stepped = simulate(game, inputs, config.tickIntervalMs);
     game = stepped.state;
-    for (const player of game.players) send(player.id, snapshotFor(game, player.id));
+    const players = snapshotPlayers(game);
+    for (const player of game.players) send(player.id, snapshotFor(game, player.id, players));
     // After the snapshots, always: the snapshot is the authority on who is alive and how
     // much health they have, and a killfeed line that arrived first would name a death on
     // a player its recipient is still drawing on their feet.

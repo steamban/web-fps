@@ -524,10 +524,21 @@ export const isSpawnProtected = (player: PlayerSimState, tick: number): boolean 
   tick < player.protectedUntilTick;
 
 /**
+ * Every player as the wire sees them, once per tick — shared across every recipient's
+ * `snapshotFor` rather than rebuilt per recipient, since it does not vary by who is asking.
+ */
+export const snapshotPlayers = (state: GameState): SnapshotPlayer[] =>
+  state.players.map((player) => snapshotOf(player, state.tick));
+
+/**
  * The `snapshot` frame as one recipient should see it — per recipient because `ackSeq`
  * names *their* last simulated input. The same split as `lobbyStateFor`.
  */
-export function snapshotFor(state: GameState, recipientId: PlayerId): ServerMessage {
+export function snapshotFor(
+  state: GameState,
+  recipientId: PlayerId,
+  players: SnapshotPlayer[],
+): ServerMessage {
   const recipient = state.players.find((player) => player.id === recipientId);
   return {
     type: "snapshot",
@@ -542,7 +553,7 @@ export function snapshotFor(state: GameState, recipientId: PlayerId): ServerMess
             primary: rounds(recipient.ammo.primary),
             secondary: rounds(recipient.ammo.secondary),
           },
-    players: state.players.map((player) => snapshotOf(player, state.tick)),
+    players,
   };
 }
 
